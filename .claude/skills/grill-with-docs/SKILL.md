@@ -7,12 +7,9 @@ disable-model-invocation: true
 ## Main Purpose
 Interview me relentlessly about every aspect of this plan until we reach a shared understanding. Walk down each branch of the design tree, resolving dependencies between decisions one-by-one.
 
-For each question, give:
-- a brief context
-- a concise ask
-- your recommended answer
+Keep the ask brief. For each question, give your recommendation.
 
-Do not use the AskUserQuestion UI. If a question can be answered by exploring the codebase, use and exploration agent to save context.
+Do not use the AskUserQuestion UI. Do not embed multi-part questions. If a question can be answered by exploring the codebase, use and exploration agent to save context.
 
 ## Maintain Repo Documentation
 

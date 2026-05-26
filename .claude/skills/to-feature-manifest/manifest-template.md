@@ -36,6 +36,11 @@ stories:
 - **touches** — coarse area tags (e.g., `db`, `api`, `ui`). Aids human scanning + downstream filtering.
 - **validation** — user-perceivable behaviours the test phase will verify. Sealed at design time; feeds Phase 3 directly.
 - **blocked_by** — list of IDs whose `state` must be `done` before this slice is eligible.
-- **state** — one of `tags.state` in [`.claude/aisdlc.json`](../../aisdlc.json).
+- **state** — one of the structural states documented in [`.claude/skills/README.md`](../../README.md) (e.g., `drafted`, `ready-for-agent`, `agent-dev`, `pr-open`, `done`, `needs-info`, `ready-for-human`, `wontfix`).
+
+Optional fields:
+
+- **override** — list, subset of `tags.override` (e.g., `[large-diff-ok]`). Human-managed; tells the runner to bypass specific caps for this slice.
+- **pr** — integer PR number. Machine-managed; written by the runner when it opens the story PR. Do not hand-edit.
 
 The worktree branch for a story is `{branches.prefix}{id}` from `aisdlc.json` — derived, not stored.

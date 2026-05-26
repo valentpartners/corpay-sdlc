@@ -356,18 +356,9 @@ propagate_runs_dir() {
   cp -R "$src" "$dst/"
 }
 
-remove_worktree() {
-  local sid="$1" wt branch
-  wt=$(worktree_path "$sid")
-  branch=$(story_branch_name "$sid")
-  if worktree_exists "$sid"; then
-    git worktree remove "$wt" --force 2>/dev/null || true
-  fi
-  if git show-ref --verify --quiet "refs/heads/$branch"; then
-    git branch -D "$branch" 2>/dev/null || true
-  fi
-  log "worktree + branch cleaned up: $sid"
-}
+# Worktree teardown is owned by scripts/cleanup-worktrees.sh at end-of-feature.
+# The runner never removes worktrees on its own — `testing.md` and other runs/
+# artefacts written during preview must survive merge to feed `to-qa-handoff`.
 
 # --- 10. gate checks --------------------------------------------------------
 
@@ -719,9 +710,8 @@ sync_remote() {
     pr=$(manifest_story_field "$sid" pr)
     pr_exists "$pr" || continue
     if pr_is_merged "$pr"; then
-      log "PR #$pr merged → $sid done"
+      log "PR #$pr merged → $sid done (worktree retained for end-of-feature cleanup)"
       manifest_set_state "$sid" "done"
-      remove_worktree "$sid"
     fi
   done < <(manifest_story_ids)
 }

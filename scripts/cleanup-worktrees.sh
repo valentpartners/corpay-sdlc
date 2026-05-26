@@ -1,12 +1,23 @@
 #!/usr/bin/env bash
-# AISDLC worktree cleanup — removes per-story worktrees + local branches
-# for every story currently in `state: done` in the manifest. Safe to run
-# mid-feature; only acts on done stories, leaves the rest alone.
+# AISDLC worktree cleanup — end-of-feature teardown before `to-qa-handoff`.
+#
+# Worktrees persist through `done` (the runner does NOT tear them down on
+# merge) so that per-story `testing.md` and other runs/ artefacts survive
+# until they can be aggregated. This script:
+#
+#   1. Refuses to run if any non-terminal story (anything other than `done`
+#      or `wontfix`) still has a worktree — testing isn't complete yet.
+#   2. For each `done` story: rsyncs the worktree's
+#      docs/ai-runs/{slug}/{story-id}/ back into the integration tree
+#      (gitignored — physically present, not committed), then removes the
+#      worktree and local branch.
+#   3. After clean exit, the human invokes `to-qa-handoff` to synthesize the
+#      feature-level QA distribution doc.
 #
 # Usage:
 #   bash scripts/cleanup-worktrees.sh                  # auto-detect manifest by current branch
 #   bash scripts/cleanup-worktrees.sh --feature SLUG   # specify by feature-slug
-#   bash scripts/cleanup-worktrees.sh --dry-run        # report only, don't remove
+#   bash scripts/cleanup-worktrees.sh --dry-run        # report only, don't remove or copy
 
 set -uo pipefail
 
@@ -31,7 +42,7 @@ done
 log() { echo "[$(date -u +%H:%M:%SZ)] $*" >&2; }
 fail() { log "ERROR: $*"; exit 1; }
 
-for tool in git yq; do
+for tool in git yq rsync jq; do
   command -v "$tool" >/dev/null || fail "$tool required on PATH"
 done
 
@@ -73,13 +84,37 @@ else
   FEATURE_SLUG=$(yq '.feature.slug' "$MANIFEST")
 fi
 
+PATH_RUNS_TPL=$(jq -r '.paths.runs' "$AISDLC_JSON")
+
 log "feature=$FEATURE_SLUG manifest=$MANIFEST dry-run=$DRY_RUN"
+
+# --- pre-flight: refuse if any non-terminal story still has a worktree ------
+
+declare -a BAIL_LIST
+while IFS=$'\t' read -r sid state; do
+  [ -z "$sid" ] && continue
+  case "$state" in
+    done|wontfix) continue ;;
+  esac
+  wt=$(expand_path "$PATH_WORKTREES_TPL" "$FEATURE_SLUG" "$sid")
+  if [ -d "$REPO_ROOT/$wt" ]; then
+    BAIL_LIST+=("$sid (state=$state)")
+  fi
+done < <(yq -r '.stories[] | [.id, .state] | @tsv' "$MANIFEST")
+
+if [ ${#BAIL_LIST[@]} -gt 0 ]; then
+  log "ERROR: non-terminal stories still have worktrees — refusing to proceed"
+  for s in "${BAIL_LIST[@]}"; do log "  - $s"; done
+  log "let testing complete (or mark the slice wontfix) and re-run."
+  exit 1
+fi
 
 # --- iterate stories --------------------------------------------------------
 
 cleaned=0
 skipped_state=0
 skipped_missing=0
+skipped_dirty=0
 declare -a SKIPPED_DETAIL
 
 while IFS=$'\t' read -r sid state; do
@@ -103,32 +138,58 @@ while IFS=$'\t' read -r sid state; do
     continue
   fi
 
+  # Refuse to tear down a dirty worktree — local changes the human didn't push.
+  if [ "$wt_present" = 1 ] && [ -n "$(git -C "$REPO_ROOT/$wt" status --porcelain 2>/dev/null)" ]; then
+    log "warn: $sid — worktree has uncommitted changes; skipping (resolve manually)"
+    skipped_dirty=$((skipped_dirty + 1))
+    SKIPPED_DETAIL+=("$sid: dirty worktree")
+    continue
+  fi
+
   if [ "$DRY_RUN" = 1 ]; then
     log "would clean: $sid (worktree=$wt_present branch=$br_present)"
     cleaned=$((cleaned + 1))
     continue
   fi
 
+  # Copy runs/ back to integration tree before destroying the worktree.
+  # Gitignored — present in working tree only. Inputs to `to-qa-handoff`.
   if [ "$wt_present" = 1 ]; then
-    git worktree remove "$wt" --force 2>/dev/null \
+    runs_rel=$(expand_path "$PATH_RUNS_TPL" "$FEATURE_SLUG" "$sid")
+    src="$REPO_ROOT/$wt/$runs_rel/"
+    dst="$REPO_ROOT/$runs_rel/"
+    if [ -d "$src" ]; then
+      mkdir -p "$dst"
+      rsync -a "$src" "$dst" \
+        || { log "  warn: rsync failed for $sid"; }
+    else
+      log "  note: $sid has no runs dir in worktree; skipping copy-back"
+    fi
+  fi
+
+  if [ "$wt_present" = 1 ]; then
+    git worktree remove "$wt" 2>/dev/null \
       || { log "  warn: failed to remove worktree $wt"; }
   fi
   if [ "$br_present" = 1 ]; then
     git branch -D "$branch" 2>/dev/null \
       || { log "  warn: failed to delete branch $branch"; }
   fi
-  log "cleaned: $sid (worktree + branch)"
+  log "cleaned: $sid (runs copied + worktree + branch)"
   cleaned=$((cleaned + 1))
 done < <(yq -r '.stories[] | [.id, .state] | @tsv' "$MANIFEST")
 
 # --- summary ----------------------------------------------------------------
 
 echo "" >&2
-log "summary: cleaned=$cleaned skipped_state=$skipped_state skipped_missing=$skipped_missing"
-if [ "$skipped_state" -gt 0 ]; then
-  log "stories not yet done (left intact):"
+log "summary: cleaned=$cleaned skipped_state=$skipped_state skipped_missing=$skipped_missing skipped_dirty=$skipped_dirty"
+if [ ${#SKIPPED_DETAIL[@]} -gt 0 ]; then
+  log "stories left intact:"
   for line in "${SKIPPED_DETAIL[@]}"; do
     log "  - $line"
   done
 fi
 log "feature integration branch ($(yq '.feature.branch' "$MANIFEST")) left alone — delete it manually after merging into protected."
+if [ "$cleaned" -gt 0 ] && [ "$DRY_RUN" = 0 ]; then
+  log "next: invoke \`to-qa-handoff\` to generate docs/ai-runs/$FEATURE_SLUG/qa-handoff.md"
+fi

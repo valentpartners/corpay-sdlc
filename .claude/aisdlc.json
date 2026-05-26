@@ -17,7 +17,11 @@
     "tddAttempts":          3,
     "diffFiles":            80,
     "diffLines":            3000,
-    "perStoryWallClockSec": 3600
+    "perStoryWallClockSec": 3600,
+    "afk": {
+      "maxFlows":     10,
+      "wallClockSec": 300
+    }
   },
 
   "commentTypes": {

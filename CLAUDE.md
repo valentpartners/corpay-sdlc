@@ -1,6 +1,6 @@
 # Project orientation
 
-_Greenfield. The init skill grills the project lead and fills these sections in._
+_Greenfield. Run `/init-greenfield` — it grills the project lead and fills these sections in._
 
 ## What this project is
 

@@ -1,6 +1,6 @@
 # {Project name}
 
-_Greenfield. The init skill grills the project lead and fills this in._
+_Greenfield. Run `/init-greenfield` — it grills the project lead and fills this in._
 
 ## What it does
 

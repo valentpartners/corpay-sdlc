@@ -221,11 +221,12 @@ Everything else (integration branch, protected branch, design-time manifest fiel
 
 ### Setup checklist
 One-time, when bootstrapping a new project from this scaffold:
-1. Confirm `gh auth status` is green (runner uses `gh` for push + PR create + PR comment).
-2. Install `yq` (manifest reads/writes) — `jq`, `git`, and `rsync` are assumed present.
-3. Run the init skill to specialize for your stack. The init skill:
-   - Activates the build / test / lint skills matching the chosen stack.
-   - Adds stack-specific permissions and hooks to `.claude/settings.json`.
+1. Run `bash scripts/setup-dev.sh` to install + verify the harness prerequisites (`git`, `jq`, `rsync`, `yq`, `gh`) and check `gh auth status`. It prints any sudo/interactive steps for you to run yourself.
+2. Run `/init-greenfield` to specialize for your stack. It:
+   - Interviews the project lead for the basics and fills `CLAUDE.md` / `README.md`.
+   - Activates the build / test / lint / run / deploy skills matching the chosen stack.
+   - Confirms `branches.protected` / `branches.prefix` in `aisdlc.json` and adds stack-specific permissions and hooks to `.claude/settings.json`.
+   - Appends the stack's setup to `scripts/setup-dev.sh`.
 
 ### Runner internals
 
@@ -292,6 +293,7 @@ Authoring (planning, writing tests, writing code) stays with the parent agent.
 Alphabetical. Phase markers indicate AISDLC participation.
 
 - [grill-with-docs](grill-with-docs/SKILL.md) — `[phase 1]` Grill that challenges a plan against the domain model and updates `CONTEXT.md` / ADRs inline.
+- [init-greenfield](init-greenfield/SKILL.md) — `[setup]` One-shot scaffold specialization: interview the lead, fill `CLAUDE.md` / `README.md`, activate dev-command skills, wire workflow config, check the dev env.
 - [implement-story](implement-story/SKILL.md) — `[phase 2]` Implement one story end-to-end from its `implementation.md` (runs inside the runner-spawned `claude`). Ground, TDD, commit locally, write run log.
 - [new-work-item](new-work-item/SKILL.md) — `[phase 2]` Create an ad-hoc story or bug.
 - [preview](preview/SKILL.md) — `[phase 2]` Boot env, run AFK Playwright in parallel, narrate HITL flows in chat, append `testing.md`.

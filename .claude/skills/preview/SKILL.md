@@ -5,7 +5,7 @@ description: Story-level test driver. Boots the local env, runs AFK Playwright i
 
 # Preview
 
-Story-level Phase-3 entry point. Stack-bound — this template is harvested + specialized by the init skill per project. It assumes a web stack (services + portals on localhost, Playwright-driven AFK). Init adapts the boot mechanics (`/build-api`, `/deploy-api`, `/run-portal`, etc.) and the test-user provisioning hook for the project.
+Story-level Phase-3 entry point. Assumes a web stack (services + portals on localhost, Playwright-driven AFK). Boot mechanics route through the generic `/build`, `/run`, `/deploy` skill stubs in `_inactive/` (filled in for this project's stack). The test-user provisioning hook is project-specific — init or the tech lead wires it up.
 
 Tracer-bullet design: every vertical slice has a user-visible surface, so `preview` runs for every story regardless of whether the slice looks "UI" or "backend."
 
@@ -17,9 +17,9 @@ Story branches follow `{branches.prefix}{story-id}` (from `aisdlc.json`). Worktr
 
 ### 2. Boot the env (subagent A)
 
-In the story's worktree, build and run the services + portals the story touches. Track PIDs. The init-generated version of this skill knows the project's `/build-*`, `/deploy-*`, and `/run-*` skills and invokes them.
+In the story's worktree, build and run the services + portals the story touches. Track PIDs. Invoke the project's filled-in `/build`, `/deploy`, and `/run` skills.
 
-Provision the dedicated test user for AFK isolation (project-specific hook, init-generated). User naming convention: `afk-test-{story-id}@example.com` or similar. Capture credentials for the AFK subagent.
+Provision the dedicated test user for AFK isolation (project-specific hook). User naming convention: `afk-test-{story-id}@example.com` or similar. Capture credentials for the AFK subagent.
 
 If a port is in use, surface `EADDRINUSE` to the human and ask them to clean up — don't silently retry.
 
@@ -91,7 +91,7 @@ The runner detects the merge on its next iteration, flips `state → done`, and 
 - **Does not remove the worktree.** `cleanup-worktrees.sh` handles teardown at end-of-feature.
 - **Does not post a PR comment** with the test plan. The chat + `testing.md` + PR thread are the record.
 - **Does not run AFK on flows it can't isolate** (shared-state destructive ops). Those become HITL prompts.
-- **Does not apply DB migrations to shared environments.** Schema changes get a manual human approval before preview runs (project-specific — init decides the gate).
+- **Does not apply DB migrations to shared environments.** Schema changes get a manual human approval before preview runs (project-specific gate).
 
 ## Common pitfalls
 

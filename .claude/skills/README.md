@@ -291,17 +291,15 @@ Authoring (planning, writing tests, writing code) stays with the parent agent.
 
 Alphabetical. Phase markers indicate AISDLC participation.
 
-- [diagnose](diagnose/SKILL.md) — Disciplined diagnosis loop for hard bugs and performance regressions. *(forthcoming)*
 - [grill-with-docs](grill-with-docs/SKILL.md) — `[phase 1]` Grill that challenges a plan against the domain model and updates `CONTEXT.md` / ADRs inline.
 - [implement-story](implement-story/SKILL.md) — `[phase 2]` Implement one story end-to-end from its `implementation.md` (runs inside the runner-spawned `claude`). Ground, TDD, commit locally, write run log.
 - [new-work-item](new-work-item/SKILL.md) — `[phase 2]` Create an ad-hoc story or bug.
-- [preview](_inactive/preview/SKILL.md) — `[phase 2]` Boot env, run AFK Playwright in parallel, narrate HITL flows in chat, append `testing.md`. *(init-generated per stack from `_inactive/preview/`)*
+- [preview](preview/SKILL.md) — `[phase 2]` Boot env, run AFK Playwright in parallel, narrate HITL flows in chat, append `testing.md`.
 - [review-pr](review-pr/SKILL.md) — Read pull requests and post comments.
 - [tdd](tdd/SKILL.md) — Test-driven development.
 - [to-feature](to-feature/SKILL.md) — `[phase 1]` Compact a chat into a sealed feature doc.
 - [to-feature-manifest](to-feature-manifest/SKILL.md) — `[phase 1]` Decompose a feature doc into a manifest of vertical-slice stories.
 - [to-qa-handoff](to-qa-handoff/SKILL.md) — `[phase 2]` Synthesize per-story `testing.md` + feature doc's `<product-behavior>` into a page-organized QA distribution doc at the feature level.
 - [to-stories](to-stories/SKILL.md) — `[phase 1]` Per drafted story: explore, surface concerns, write `implementation.md`, promote.
-- [write-a-skill](write-a-skill/SKILL.md) — Author or revise a SKILL.md. *(forthcoming)*
-- [write-an-adr](write-an-adr/SKILL.md) — Author an ADR. *(forthcoming)*
+- [write-a-skill](write-a-skill/SKILL.md) — Author or revise a SKILL.md to match this scaffold's conventions.
 - [zoom-out](zoom-out/SKILL.md) — Give broader context on an unfamiliar area of code.

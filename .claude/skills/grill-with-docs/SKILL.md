@@ -44,6 +44,8 @@ What qualifies:
 
 Don't edit the original beyond updating its status to `Superseded by ADR XXXX`. Author a new ADR for the new decision; reference the old one in its Context. The history is the value.
 
+Use the template at [adr-template.md](adr-template.md). Write to `.claude/knowledge/adrs/NNNN-{slug}.md`.
+
 ### Priority 2
 Update at the end of a grilling session
 

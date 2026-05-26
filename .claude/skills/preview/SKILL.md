@@ -27,7 +27,7 @@ If a port is in use, surface `EADDRINUSE` to the human and ask them to clean up 
 
 Spawn an `Explore` subagent on the diff to map: changed files → callers → user-visible flows. Cap the flow list at `caps.afk.maxFlows` (from `aisdlc.json`). Anything beyond gets surfaced inline as "X additional flows could be impacted — out of regression scope, not tested."
 
-Hand the flow list to a Playwright subagent. It drives a headless browser via the Playwright CLI / MCP server, logged in as the dedicated test user. No test files written — throwaway DOM assertions only. Budget: `caps.afk.wallClockSec`. The subagent returns pass/fail per flow with failure diagnostics.
+Hand the flow list to the `playwright-tester` subagent (defined at `.claude/agents/playwright-tester.md`). It drives a headless browser via `playwright-cli`, logged in as the dedicated test user. No test files written — throwaway DOM assertions only. Budget: `caps.afk.wallClockSec`. Returns structured pass/fail per flow with the exercised files passed through for in-scope vs pre-existing attribution.
 
 If destructive ops on shared state are unavoidable (and isolation breaks), fall back to **sequential mode**: AFK runs before the human walks, completes its mutations, env state is reset, then preview hands off to the human. Init decides which mode applies based on whether the test-user provisioning hook is configured.
 

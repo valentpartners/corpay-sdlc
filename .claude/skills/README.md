@@ -140,7 +140,7 @@ Once every story is `done` (or `wontfix`):
    ```bash
    bash scripts/cleanup-worktrees.sh
    ```
-   For each `done` story: rsync `docs/ai-runs/{slug}/{story-id}/` from the worktree → integration's main tree (still gitignored — physically present, not committed), then `git worktree remove` + `git branch -D`. Bails if any non-`done` story still has a worktree.
+   For each `done` story: rsync the paths listed in `.worktreeinclude` from the worktree → integration's main tree (still gitignored — physically present, not committed), then `git worktree remove` + `git branch -D`. Bails if any non-`done` story still has a worktree.
 
 2. **Invoke `to-qa-handoff`** in a fresh chat from the integration branch. Reads the feature doc's `<product-behavior>` Flows, all per-story `testing.md` files, and the manifest. Synthesizes into `docs/ai-runs/{slug}/qa-handoff.md` — page-organized (by user-facing route, not by story), with per-page checklists and named end-to-end scenarios. Iterates with you in chat; chat is the iteration surface, the doc is the sealed output.
 
@@ -203,7 +203,7 @@ The runner is the only writer for:
 The cleanup script (`scripts/cleanup-worktrees.sh`) is the sole writer for:
 - Worktree teardown (`git worktree remove`).
 - Local story-branch deletion (`git branch -D`).
-- Copy-back of `docs/ai-runs/{slug}/{story-id}/` from each worktree → integration's main tree (gitignored, working-tree only).
+- Copy-back of paths listed in `.worktreeinclude` from each worktree → integration's main tree (gitignored, working-tree only).
 
 Everything else (integration branch, protected branch, design-time manifest fields, untyped PR comments, merges, `testing.md` and `qa-handoff.md` content) is human-managed (or human-with-Claude in chat). Reads are unrestricted.
 
@@ -241,7 +241,7 @@ Mechanical detail for debugging the runner. Not needed for day-to-day shipping.
 3. **Brief audit.** Confirm `implementation.md` is present in the runs dir. If missing, flip the story to `needs-info` and continue. Recovery: re-run `to-stories` for that story.
 4. **Claim.** Flip `state` to `agent-dev`.
 5. **Worktree.** Create `.worktrees/{story-id}/` off the integration branch if it doesn't exist; reuse on re-runs. Story branch: `{branches.prefix}{story-id}`.
-6. **Context propagation.** Copy `docs/ai-runs/{slug}/{story-id}/` from the main tree into the worktree (the runs dir is gitignored, so `git worktree add` doesn't carry it).
+6. **Context propagation.** Copy the paths listed in `.worktreeinclude` from the main tree into the worktree (gitignored paths don't propagate through `git worktree add`).
 7. **Compile prompt + spawn.** Thin prompt: story id, branch names, run number, diff caps, `large-diff-ok` flag, optional inlined PR-feedback bundle on re-runs. Ends with `Run /implement-story`. Spawn `claude --permission-mode acceptEdits -p --output-format stream-json --verbose` in the worktree, bounded by `caps.perStoryWallClockSec`.
 8. **Post-agent gates.** Before any remote action, verify:
    - At least one new commit on the story branch since fork.

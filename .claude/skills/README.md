@@ -223,8 +223,8 @@ Everything else (integration branch, protected branch, design-time manifest fiel
 One-time, when bootstrapping a new project from this scaffold:
 1. Confirm `gh auth status` is green (runner uses `gh` for push + PR create + PR comment).
 2. Install `yq` (manifest reads/writes) — `jq`, `git`, and `rsync` are assumed present.
-3. Run the init skill (forthcoming) to specialize for your stack. The init skill:
-   - Activates the appropriate skills from `_inactive/` (build / test / lint family matching the chosen stack).
+3. Run the init skill to specialize for your stack. The init skill:
+   - Activates the build / test / lint skills matching the chosen stack.
    - Adds stack-specific permissions and hooks to `.claude/settings.json`.
 
 ### Runner internals

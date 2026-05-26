@@ -1,11 +1,12 @@
 ---
 name: preview
 description: Story-level test driver. Boots the local env, runs AFK Playwright in parallel against a dedicated test user, narrates HITL flows in chat, appends testing.md inline. One skill, one chat, in the story's worktree.
+disable-model-invocation: true
 ---
 
 # Preview
 
-Story-level Phase-3 entry point. Assumes a web stack (services + portals on localhost, Playwright-driven AFK). Boot mechanics route through the generic `/build`, `/run`, `/deploy` skill stubs in `_inactive/` (filled in for this project's stack). The test-user provisioning hook is project-specific — init or the tech lead wires it up.
+Story-level Phase-3 entry point. Assumes a web stack (services + portals on localhost, Playwright-driven AFK). Boot mechanics route through the generic `/build`, `/run`, `/deploy` skills (stack-specific implementations wired up during init). The test-user provisioning hook is project-specific — init or the tech lead wires it up.
 
 Tracer-bullet design: every vertical slice has a user-visible surface, so `preview` runs for every story regardless of whether the slice looks "UI" or "backend."
 

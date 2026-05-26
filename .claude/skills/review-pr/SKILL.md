@@ -41,8 +41,6 @@ gh api repos/{owner}/{repo}/pulls/{number}/comments \
 gh pr comment {number} --body "{body}"
 ```
 
-If the comment is AI-generated (not human-dictated), lead the body with the [AI disclaimer](../../knowledge/shared/ai-disclaimer.md) line.
-
 ## Rules
 
 - **Work from the numeric id.** Never compose API calls against a URL or branch name.

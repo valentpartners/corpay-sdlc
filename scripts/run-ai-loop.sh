@@ -471,7 +471,12 @@ build_spawn_prompt() {
        | grep -q 'large-diff-ok'; then
     override="1"
   fi
+  # Leading `/implement-story` is parsed by the harness and injects the skill
+  # body into the spawned model's context. The skill has disable-model-invocation,
+  # so a mid-prompt mention would not load it — only the leading-token path works.
   cat <<EOF
+/implement-story
+
 You are the Phase 2 implementation agent for story $sid under feature
 $FEATURE_SLUG. Run #$n in this worktree.
 
@@ -505,11 +510,6 @@ Also read the prior run logs under $(story_runs_dir "$sid")/ (run-1.md, run-2.md
 EOF
   fi
 
-  cat <<EOF
-
-Run \`/implement-story\` now. The skill encapsulates the full iteration
-playbook and the hard constraints. Do not author the process inline.
-EOF
 }
 
 # Stream-json formatter — ported from scripts/_inactive/run-ai-loop.sh.

@@ -88,7 +88,22 @@ PATH_RUNS_TPL=$(jq -r '.paths.runs' "$AISDLC_JSON")
 
 log "feature=$FEATURE_SLUG manifest=$MANIFEST dry-run=$DRY_RUN"
 
-# --- pre-flight: refuse if any non-terminal story still has a worktree ------
+# --- registered-worktree set (truth for "is this a live worktree?") ---------
+# git worktree list --porcelain is authoritative — a directory under
+# .worktrees/ can outlive its registration (e.g. `git worktree remove`
+# fails on a leftover build artifact and the dir is orphaned). Such
+# orphans must be rm'd, not poked with `git -C` — git would walk up to
+# the parent repo and surface its state, falsely tripping the dirty check.
+declare -A REGISTERED_WORKTREES
+while IFS= read -r line; do
+  case "$line" in
+    "worktree "*) REGISTERED_WORKTREES["${line#worktree }"]=1 ;;
+  esac
+done < <(git worktree list --porcelain)
+
+wt_registered() { [ -n "${REGISTERED_WORKTREES["$REPO_ROOT/$1"]:-}" ]; }
+
+# --- pre-flight: refuse if any non-terminal story still has a live worktree -
 
 declare -a BAIL_LIST
 while IFS=$'\t' read -r sid state; do
@@ -97,12 +112,12 @@ while IFS=$'\t' read -r sid state; do
     done|wontfix) continue ;;
   esac
   wt=$(expand_path "$PATH_WORKTREES_TPL" "$FEATURE_SLUG" "$sid")
-  if [ -d "$REPO_ROOT/$wt" ]; then
+  if wt_registered "$wt"; then
     BAIL_LIST+=("$sid (state=$state)")
   fi
 done < <(yq -r '.stories[] | [.id, .state] | @tsv' "$MANIFEST")
 
-if [ ${#BAIL_LIST[@]} -gt 0 ]; then
+if [ -n "${BAIL_LIST:-}" ]; then
   log "ERROR: non-terminal stories still have worktrees — refusing to proceed"
   for s in "${BAIL_LIST[@]}"; do log "  - $s"; done
   log "let testing complete (or mark the slice wontfix) and re-run."
@@ -128,18 +143,28 @@ while IFS=$'\t' read -r sid state; do
     continue
   fi
 
-  wt_present=0
+  wt_live=0
+  wt_orphan=0
   br_present=0
-  [ -d "$REPO_ROOT/$wt" ] && wt_present=1
+  remote_present=0
+  if wt_registered "$wt"; then
+    wt_live=1
+  elif [ -d "$REPO_ROOT/$wt" ]; then
+    wt_orphan=1
+  fi
   git show-ref --verify --quiet "refs/heads/$branch" && br_present=1
+  git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 && remote_present=1
 
-  if [ "$wt_present" = 0 ] && [ "$br_present" = 0 ]; then
+  if [ "$wt_live" = 0 ] && [ "$wt_orphan" = 0 ] && [ "$br_present" = 0 ] && [ "$remote_present" = 0 ]; then
     skipped_missing=$((skipped_missing + 1))
     continue
   fi
 
-  # Refuse to tear down a dirty worktree — local changes the human didn't push.
-  if [ "$wt_present" = 1 ] && [ -n "$(git -C "$REPO_ROOT/$wt" status --porcelain 2>/dev/null)" ]; then
+  # Refuse to tear down a dirty *live* worktree — local changes the human
+  # didn't push. Orphan dirs aren't real worktrees; running git status from
+  # inside one walks up to the parent repo (false positive). They're handled
+  # by the rm -rf safety-net below.
+  if [ "$wt_live" = 1 ] && [ -n "$(git -C "$REPO_ROOT/$wt" status --porcelain 2>/dev/null)" ]; then
     log "warn: $sid — worktree has uncommitted changes; skipping (resolve manually)"
     skipped_dirty=$((skipped_dirty + 1))
     SKIPPED_DETAIL+=("$sid: dirty worktree")
@@ -147,14 +172,14 @@ while IFS=$'\t' read -r sid state; do
   fi
 
   if [ "$DRY_RUN" = 1 ]; then
-    log "would clean: $sid (worktree=$wt_present branch=$br_present)"
+    log "would clean: $sid (worktree=$wt_live orphan=$wt_orphan branch=$br_present remote=$remote_present)"
     cleaned=$((cleaned + 1))
     continue
   fi
 
   # Copy runs/ back to integration tree before destroying the worktree.
   # Gitignored — present in working tree only. Inputs to `to-qa-handoff`.
-  if [ "$wt_present" = 1 ]; then
+  if [ "$wt_live" = 1 ]; then
     runs_rel=$(expand_path "$PATH_RUNS_TPL" "$FEATURE_SLUG" "$sid")
     src="$REPO_ROOT/$wt/$runs_rel/"
     dst="$REPO_ROOT/$runs_rel/"
@@ -167,13 +192,30 @@ while IFS=$'\t' read -r sid state; do
     fi
   fi
 
-  if [ "$wt_present" = 1 ]; then
-    git worktree remove "$wt" 2>/dev/null \
-      || { log "  warn: failed to remove worktree $wt"; }
+  if [ "$wt_live" = 1 ]; then
+    # --force tolerates leftover build artifacts (.next/, etc.). The story is
+    # done and merged; nothing in the worktree is worth preserving past this
+    # point. Without --force, a stray untracked file leaves an orphan dir
+    # behind — the exact failure mode this script is trying to prevent.
+    git worktree remove --force "$wt" 2>/dev/null \
+      || { log "  warn: failed to remove worktree $wt (will rm dir as fallback)"; }
+  fi
+  # Safety-net: catch both orphans we inherited and registered worktrees
+  # whose `git worktree remove` somehow still left the dir behind.
+  if [ -d "$REPO_ROOT/$wt" ]; then
+    rm -rf "$REPO_ROOT/$wt" \
+      && [ "$wt_orphan" = 1 ] && log "  removed orphan dir $wt"
   fi
   if [ "$br_present" = 1 ]; then
     git branch -D "$branch" 2>/dev/null \
       || { log "  warn: failed to delete branch $branch"; }
+  fi
+  # The story branch was pushed to the remote for its PR; delete it there too,
+  # otherwise merged story branches accumulate on the remote forever.
+  if [ "$remote_present" = 1 ]; then
+    git push origin --delete "$branch" >/dev/null 2>&1 \
+      && log "  deleted remote branch origin/$branch" \
+      || { log "  warn: failed to delete remote branch origin/$branch"; }
   fi
   log "cleaned: $sid (runs copied + worktree + branch)"
   cleaned=$((cleaned + 1))
@@ -183,7 +225,7 @@ done < <(yq -r '.stories[] | [.id, .state] | @tsv' "$MANIFEST")
 
 echo "" >&2
 log "summary: cleaned=$cleaned skipped_state=$skipped_state skipped_missing=$skipped_missing skipped_dirty=$skipped_dirty"
-if [ ${#SKIPPED_DETAIL[@]} -gt 0 ]; then
+if [ -n "${SKIPPED_DETAIL:-}" ]; then
   log "stories left intact:"
   for line in "${SKIPPED_DETAIL[@]}"; do
     log "  - $line"

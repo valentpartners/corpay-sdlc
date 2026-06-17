@@ -13,9 +13,15 @@
 # User-type comment newer than the runner's latest `[Type: ...]` comment on
 # the PR triggers another agent pass with the comment bundle inlined.
 #
+# In `--watch` mode the runner keeps polling only while at least one story is
+# `pr-open` (a merge could still flip it `done` and unblock dependents). Once
+# every story is `done` / `needs-info` / blocked by a non-`done` story — i.e.
+# nothing left that polling can advance without human action — it exits with
+# the named blocker instead of sleeping forever.
+#
 # Usage:
 #   bash scripts/run-ai-loop.sh                  # single-shot
-#   bash scripts/run-ai-loop.sh --watch 300      # long-running, poll every 300s
+#   bash scripts/run-ai-loop.sh --watch 300      # poll every 300s until stuck
 
 set -uo pipefail
 
@@ -63,7 +69,7 @@ fail() { log "ERROR: $*"; exit 1; }
 
 # --- 2. tooling preflight ---------------------------------------------------
 
-for tool in git gh jq yq claude timeout; do
+for tool in git gh jq yq claude timeout setsid; do
   command -v "$tool" >/dev/null || fail "$tool required on PATH"
 done
 
@@ -84,6 +90,14 @@ BRANCH_PREFIX=$(jq -r '.branches.prefix' "$AISDLC_JSON")
 PROTECTED_BRANCHES=$(jq -r '.branches.protected[]' "$AISDLC_JSON" | paste -sd '|' -)
 DIFF_FILE_CAP=$(jq -r '.caps.diffFiles' "$AISDLC_JSON")
 DIFF_LINE_CAP=$(jq -r '.caps.diffLines' "$AISDLC_JSON")
+
+# Generated paths (lockfiles, migrations, snapshots) are excluded from the
+# human-review diff caps — they're not reviewed line-by-line and otherwise
+# blow the budget. Loaded as git pathspec exclude args; empty if unconfigured.
+DIFF_IGNORE_PATHSPEC=()
+while IFS= read -r g; do
+  [ -n "$g" ] && DIFF_IGNORE_PATHSPEC+=(":(exclude)$g")
+done < <(jq -r '.caps.diffIgnoreGlobs[]?' "$AISDLC_JSON")
 TDD_MAX_ATTEMPTS=$(jq -r '.caps.tddAttempts' "$AISDLC_JSON")
 PER_STORY_WALL_CLOCK=$(jq -r '.caps.perStoryWallClockSec' "$AISDLC_JSON")
 PERMISSION_MODE=$(jq -r '.runner.permissionMode // "acceptEdits"' "$AISDLC_JSON")
@@ -186,6 +200,14 @@ manifest_set_pr() {
 
 manifest_story_ids() {
   yq '.stories[].id' "$MANIFEST"
+}
+
+story_has_override() {
+  # $1 = story-id, $2 = override token. Exact array-membership match against
+  # .override (not a substring grep), absent/empty override → false.
+  local sid="$1" token="$2" hit
+  hit=$(yq ".stories[] | select(.id == \"$sid\") | .override[]? | select(. == \"$token\")" "$MANIFEST")
+  [ -n "$hit" ]
 }
 
 manifest_state_of() {
@@ -390,15 +412,18 @@ gate_commit_messages_reference_story() {
 
 gate_diff_within_caps() {
   local wt="$1" sid="$2"
-  local override
-  override=$(yq ".stories[] | select(.id == \"$sid\") | .override // []" "$MANIFEST")
-  if echo "$override" | grep -q 'large-diff-ok'; then
+  if story_has_override "$sid" "large-diff-ok"; then
     return 0
+  fi
+  # Exclude generated paths from the counted diff (see DIFF_IGNORE_PATHSPEC).
+  local pathspec=()
+  if [ "${#DIFF_IGNORE_PATHSPEC[@]}" -gt 0 ]; then
+    pathspec=(-- . "${DIFF_IGNORE_PATHSPEC[@]}")
   fi
   local branch files lines
   branch=$(story_branch_name "$sid")
-  files=$(git -C "$REPO_ROOT/$wt" diff --name-only "$INTEGRATION_BRANCH..$branch" | wc -l)
-  lines=$(git -C "$REPO_ROOT/$wt" diff --shortstat "$INTEGRATION_BRANCH..$branch" \
+  files=$(git -C "$REPO_ROOT/$wt" diff --name-only "$INTEGRATION_BRANCH..$branch" "${pathspec[@]}" | wc -l)
+  lines=$(git -C "$REPO_ROOT/$wt" diff --shortstat "$INTEGRATION_BRANCH..$branch" "${pathspec[@]}" \
           | grep -oE '[0-9]+ (insertions|deletions)' \
           | awk '{ s += $1 } END { print s+0 }')
   if [ "$files" -gt "$DIFF_FILE_CAP" ]; then
@@ -467,8 +492,7 @@ build_spawn_prompt() {
   local branch
   branch=$(story_branch_name "$sid")
   local override="0"
-  if yq ".stories[] | select(.id == \"$sid\") | .override // []" "$MANIFEST" \
-       | grep -q 'large-diff-ok'; then
+  if story_has_override "$sid" "large-diff-ok"; then
     override="1"
   fi
   # Leading `/implement-story` is parsed by the harness and injects the skill
@@ -578,14 +602,42 @@ spawn_claude() {
   mkdir -p "$(dirname "$stream_log")"
   log "spawning claude in $wt (run $n, stream-log: $stream_log)"
 
+  # Echo the exact prompt being piped to claude, to stderr and runner.log.
+  # Bracketed so it reads as one block rather than per-line timestamps.
+  {
+    echo "----- prompt for $sid run $n (begin) -----"
+    cat "$prompt_file"
+    echo "----- prompt for $sid run $n (end) -----"
+  } | tee -a "${RUNNER_LOG:-/dev/null}" >&2
+
   rc=0
+  local pgid_file; pgid_file=$(mktemp)
+  # Run the agent in its own session/process group (setsid) and record the
+  # group-leader PID. The inner `sh` becomes the leader, writes its own PID,
+  # then exec's `timeout claude` in place (same PID → same PGID). claude and any
+  # process it spawns inherit that PGID, so we can sweep the whole subtree below.
   ( cd "$REPO_ROOT/$wt" \
-    && timeout "$PER_STORY_WALL_CLOCK" claude --permission-mode "$PERMISSION_MODE" \
+    && setsid -w sh -c 'echo "$$" >"$1"; shift; exec timeout "$@"' \
+         sh "$pgid_file" "$PER_STORY_WALL_CLOCK" \
+         claude --permission-mode "$PERMISSION_MODE" \
          -p --output-format stream-json --verbose \
          < "$prompt_file" ) \
     | tee "$stream_log" \
     | stream_format \
     || rc=$?
+  # Defense-in-depth: an agent must not leave anything running (see the
+  # implement-story "Boundaries" section). A well-behaved run makes this a
+  # no-op. If an agent leaked a long-lived child (e.g. a dev server), it lingers
+  # here — or, in the worst case, held the agent open until the wall-clock
+  # `timeout` above fired; either way we reap the orphaned group so it can't
+  # leak ports or wedge a later iteration.
+  local agent_pgid; agent_pgid=$(cat "$pgid_file" 2>/dev/null); rm -f "$pgid_file"
+  if [ -n "$agent_pgid" ] && kill -0 "-$agent_pgid" 2>/dev/null; then
+    log "reaping leftover processes in agent group $agent_pgid"
+    kill -TERM "-$agent_pgid" 2>/dev/null || true
+    sleep 2
+    kill -KILL "-$agent_pgid" 2>/dev/null || true
+  fi
   log "claude exited rc=$rc"
   return $rc
 }
@@ -639,10 +691,11 @@ open_or_update_pr() {
 EOF
 )
 
-  pr_num=$(gh pr create -R "$GH_REPO" --base "$INTEGRATION_BRANCH" --head "$branch" \
-             --title "$title" --body "$body" 2>/dev/null \
-           | grep -oE 'pull/[0-9]+' | head -1 | sed 's|pull/||') \
-    || { log "gh pr create failed for $branch"; return 1; }
+  local create_out
+  create_out=$(gh pr create -R "$GH_REPO" --base "$INTEGRATION_BRANCH" --head "$branch" \
+                 --title "$title" --body "$body" 2>&1) \
+    || { log "gh pr create failed for $branch: $create_out"; return 1; }
+  pr_num=$(echo "$create_out" | grep -oE 'pull/[0-9]+' | head -1 | sed 's|pull/||')
 
   if [ -z "$pr_num" ]; then
     log "gh pr create did not return a PR number for $branch"
@@ -694,6 +747,19 @@ EOF
 }
 
 # --- 13. iteration body -----------------------------------------------------
+
+# Ensure the integration branch exists on origin. Every story PR opens with it
+# as --base, so `gh pr create` fails outright if it was never pushed. Push it
+# once up front rather than discovering the failure per-story.
+ensure_integration_pushed() {
+  if git ls-remote --exit-code --heads origin "$INTEGRATION_BRANCH" >/dev/null 2>&1; then
+    log "integration branch '$INTEGRATION_BRANCH' present on origin"
+    return 0
+  fi
+  log "integration branch '$INTEGRATION_BRANCH' not on origin — pushing"
+  ( cd "$REPO_ROOT" && git push -u origin "$INTEGRATION_BRANCH" ) \
+    || fail "failed to push integration branch '$INTEGRATION_BRANCH' to origin"
+}
 
 # Reconcile pr-open stories: detect merges, flip done, cleanup.
 sync_remote() {
@@ -765,6 +831,12 @@ report_exit_reason() {
       pr-open)    pr_open_count=$((pr_open_count + 1)) ;;
     esac
   done < <(manifest_story_ids)
+
+  # Expose the pr-open tally so main_loop can decide whether --watch has
+  # anything left to advance: a pr-open story can flip to done on an external
+  # merge, but needs-info / blocked stories only move on human action, which
+  # polling can't observe as forward progress.
+  PR_OPEN_REMAINING=$pr_open_count
 
   log "exit summary: pr-open=$pr_open_count needs-info=$needs_info_count blocked=$blocked_count"
   if [ "$pr_open_count" -gt 0 ]; then
@@ -857,6 +929,7 @@ run_one_iteration() {
 # --- 14. outer loop ---------------------------------------------------------
 
 main_loop() {
+  ensure_integration_pushed
   while : ; do
     if run_one_iteration; then
       # Did work — keep going.
@@ -868,7 +941,15 @@ main_loop() {
       log "no eligible work — single-shot exit"
       break
     fi
-    log "no eligible work — sleeping ${WATCH_INTERVAL}s (--watch)"
+    # In --watch mode, only keep polling while a pr-open story could still flip
+    # to done on an external merge. If none remain, every story is done /
+    # needs-info / blocked-by-a-non-done story, so nothing will advance without
+    # human action — exit rather than poll forever.
+    if [ "${PR_OPEN_REMAINING:-0}" -eq 0 ]; then
+      log "no eligible work and no open PRs — nothing left for --watch to advance; exiting"
+      break
+    fi
+    log "no eligible work — sleeping ${WATCH_INTERVAL}s (--watch); $PR_OPEN_REMAINING open PR(s) may still merge"
     sleep "$WATCH_INTERVAL"
   done
 }

@@ -20,7 +20,7 @@ Jira.
 
 - `.codex/skills/README.md` - AISDLC workflow and skill catalog for Codex.
 - `.codex/aisdlc.json` - Codex harness config (caps, paths, tags, branch naming).
-- `CONTEXT.md` - domain glossary.
+- `.codex/CONTEXT.md` - domain glossary.
 - `.codex/knowledge/` - ADRs and architecture notes.
 
 ## Project-specific guidance

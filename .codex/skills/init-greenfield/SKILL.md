@@ -33,17 +33,17 @@ Confirm, don't grill.
 Apply every answer:
 
 - **`AGENTS.md`** — fill *What this project is* (one-liner), *Stack*, *Tracker*. Remove the greenfield marker line. Leave *Project-specific guidance* empty unless something concrete surfaced.
-- **`README.md`** — fill the project name, *What it does* (human-facing, bullet-first), *Getting started* (clone → `bash scripts/setup-dev.sh` → the dev commands), *Development* (the per-command summary).
+- **`README.md`** — fill the project name, *What it does* (human-facing, bullet-first), *Getting started* (clone → `bash .codex/scripts/setup-dev.sh` → the dev commands), *Development* (the per-command summary).
 - **Dev-command skills** — for each command that applies, promote its stub: `git mv .codex/skills/_inactive/<name> .codex/skills/<name>` and replace the `{TBD}` lines with the real commands and preconditions. Leave non-applicable stubs in `_inactive/`.
 - **`.codex/aisdlc.json`** — write the confirmed `branches.protected` and `branches.prefix`.
 - **`.codex/settings.json`** — record stack-specific command notes if useful. Codex runtime approvals are controlled by Codex config/CLI flags plus `.codex/aisdlc.json` runner fields.
-- **`scripts/setup-dev.sh`** — append the stack's setup below the `# --- stack-specific (managed by init-greenfield) ---` marker: runtime/toolchain install + version checks + dependency install (e.g. `node`, `npm ci`). Match the existing `have`/`apt_install`/`MISSING`/`MANUAL` conventions so the summary still reports cleanly. Keep privileged/interactive steps as `MANUAL` entries, not auto-run.
-- **`CONTEXT.md`** — seed only the domain terms that genuinely surface in the one-liner. The project's name and core nouns are its first and most load-bearing ubiquitous language. Apply the [grill-with-docs](../grill-with-docs/SKILL.md) CONTEXT.md rules: opinionated (pick one word, list aliases to avoid), one-sentence definitions, domain-specific only (no general programming concepts), keep the example dialogue. Add nothing speculative — two or three solid terms beat ten guesses. The design phase fills out the rest.
+- **`.codex/scripts/setup-dev.sh`** — append the stack's setup below the `# --- stack-specific (managed by init-greenfield) ---` marker: runtime/toolchain install + version checks + dependency install (e.g. `node`, `npm ci`). Match the existing `have`/`apt_install`/`MISSING`/`MANUAL` conventions so the summary still reports cleanly. Keep privileged/interactive steps as `MANUAL` entries, not auto-run.
+- **`.codex/CONTEXT.md`** — seed only the domain terms that genuinely surface in the one-liner. The project's name and core nouns are its first and most load-bearing ubiquitous language. Apply the [grill-with-docs](../grill-with-docs/SKILL.md) `.codex/CONTEXT.md` rules: opinionated (pick one word, list aliases to avoid), one-sentence definitions, domain-specific only (no general programming concepts), keep the example dialogue. Add nothing speculative — two or three solid terms beat ten guesses. The design phase fills out the rest.
 
 Leave untouched: `.codex/knowledge/architecture.md`, ADRs, `.codex/skills/README.md`.
 
 ### 4. Check the environment
-Run `bash scripts/setup-dev.sh` in-session. The `command -v` checks work here; `sudo apt-get` installs and `gh auth login` cannot run in this context and will surface as MANUAL entries. Relay the result plainly:
+Run `bash .codex/scripts/setup-dev.sh` in-session. The `command -v` checks work here; `sudo apt-get` installs and `gh auth login` cannot run in this context and will surface as MANUAL entries. Relay the result plainly:
 - Tools confirmed present.
 - For each MANUAL entry, the exact command for the lead to run in their own terminal.
 

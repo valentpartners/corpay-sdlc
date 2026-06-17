@@ -1,6 +1,4 @@
-# agent configuration
+# Codex local/runtime artifacts
 .codex/settings.local.json
-.worktrees/
-
-# AISDLC runtime artifacts — mirrored into worktrees via .worktreeinclude
-docs/ai-runs/
+.codex/.worktrees/
+.codex/docs/ai-runs/

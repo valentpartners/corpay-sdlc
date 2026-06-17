@@ -44,6 +44,6 @@ If split into multiple feature documents: distribute flows / architecture / code
 - **Omit empty sections.** No headers without content.
 - **Decisions live next to what they affect.** Product decisions inside flows; architecture decisions inside layers. No flat "Decisions made" section.
 - **No implementation signatures.** Handler classes, route URLs, DTO types, method bodies belong downstream.
-- **No References / Glossary / Status sections in the body.** References live in CONTEXT.md and ADRs; glossary in CONTEXT.md.
+- **No References / Glossary / Status sections in the body.** References live in `.codex/CONTEXT.md` and ADRs; glossary in `.codex/CONTEXT.md`.
 - **One question per turn.** Don't bundle the glossary and merge-conflict passes.
 - **Never seal with open questions.** Shaky threads either resolve in conversation and become decisions, or ride the verbal handoff channel.

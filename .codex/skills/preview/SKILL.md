@@ -14,7 +14,7 @@ Tracer-bullet design: every vertical slice has a user-visible surface, so `previ
 
 ### 1. Locate the story's worktree
 
-Story branches follow `{branches.prefix}{story-id}` (from `aisdlc.json`). Worktree at `.worktrees/{story-id}/`. If missing, refuse — the runner hasn't worked on this story yet or `cleanup-codex-worktrees.sh` already tore it down.
+Story branches follow `{branches.prefix}{story-id}` (from `aisdlc.json`). Worktree at `.codex/.worktrees/{story-id}/`. If missing, refuse — the runner hasn't worked on this story yet or `cleanup-codex-worktrees.sh` already tore it down.
 
 ### 2. Boot the env (subagent A)
 
@@ -69,7 +69,7 @@ Per finding (AFK fail OR human observation during the walk), the human chooses o
 
 ### 6. Append testing.md inline
 
-Throughout the session, append to `docs/ai-runs/{slug}/{story-id}/testing.md` (lives inside the worktree's runs dir; gitignored; copied back to the integration tree by `cleanup-codex-worktrees.sh` at end-of-feature). Same inline-update pattern as `grill-with-docs` — append as things happen, don't synthesize at session close, so if the chat dies the record survives.
+Throughout the session, append to `.codex/docs/ai-runs/{slug}/{story-id}/testing.md` (lives inside the worktree's runs dir; gitignored; copied back to the integration tree by `cleanup-codex-worktrees.sh` at end-of-feature). Same inline-update pattern as `grill-with-docs` — append as things happen, don't synthesize at session close, so if the chat dies the record survives.
 
 Contents:
 - Story ID + title.

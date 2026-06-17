@@ -1,6 +1,6 @@
 ---
 name: grill-with-docs
-description: Adversarial design dialogue that updates CONTEXT.md and proposes ADRs inline.
+description: Adversarial design dialogue that updates .codex/CONTEXT.md and proposes ADRs inline.
 disable-model-invocation: true
 ---
 
@@ -16,8 +16,8 @@ Do not use the AskUserQuestion UI. Do not embed multi-part questions. If a quest
 ### Priority 1
 Ask before updating. Update in-line.
 
-#### Context.md
-When a new domain or project-specific term is used, surface it immediately. When a term is resolved, edit [CONTEXT.md](../../../CONTEXT.md).
+#### .codex/CONTEXT.md
+When a new domain or project-specific term is used, surface it immediately. When a term is resolved, edit [.codex/CONTEXT.md](../../CONTEXT.md).
 
 Rules:
 - **Be opinionated.** When multiple words exist for the same concept, pick the best one and list the others as aliases to avoid.

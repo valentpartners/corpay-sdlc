@@ -5,7 +5,7 @@ disable-model-invocation: true
 ---
 
 ## Main Purpose
-Append one entry to `docs/ai-runs/{feature-slug}/manifest.yaml`. Pull details from the chat — don't interview the human.
+Append one entry to `.codex/docs/ai-runs/{feature-slug}/manifest.yaml`. Pull details from the chat — don't interview the human.
 
 ## Process
 
@@ -16,7 +16,7 @@ Append one entry to `docs/ai-runs/{feature-slug}/manifest.yaml`. Pull details fr
 - **Validation** — user-perceivable behaviours the runner can verify (1–4 bullets).
 
 ### 2. Pick the manifest
-`docs/ai-runs/{feature-slug}/manifest.yaml`. If ambiguous, ask which feature.
+`.codex/docs/ai-runs/{feature-slug}/manifest.yaml`. If ambiguous, ask which feature.
 
 ### 3. Pick the id
 Next free `NNN-{short-slug}`. IDs are sticky; gaps are fine.

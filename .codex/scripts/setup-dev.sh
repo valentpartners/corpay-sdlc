@@ -9,7 +9,7 @@
 # runner and skills depend on:
 #   git, jq, rsync   — standard apt packages
 #   yq               — mikefarah/yq Go binary (NOT the apt `yq` python wrapper;
-#                      the manifest queries in scripts/ use mikefarah syntax)
+#                      the manifest queries in .codex/scripts/ use mikefarah syntax)
 #   gh               — GitHub CLI (the runner pushes, opens PRs, posts comments)
 #
 # Anything needing sudo or an interactive login (`gh auth login`) is left for
@@ -19,8 +19,8 @@
 # near the bottom of this file once the project's stack is settled.
 #
 # Usage:
-#   bash scripts/setup-dev.sh            # check + install missing baseline tools
-#   bash scripts/setup-dev.sh --check    # report only, install nothing
+#   bash .codex/scripts/setup-dev.sh            # check + install missing baseline tools
+#   bash .codex/scripts/setup-dev.sh --check    # report only, install nothing
 
 set -uo pipefail
 
@@ -148,7 +148,7 @@ if have codex; then
   log "ok: codex ($(command -v codex))"
 else
   log "missing: codex"
-  MANUAL+=("install Codex CLI, then re-run bash scripts/setup-dev.sh")
+  MANUAL+=("install Codex CLI, then re-run bash .codex/scripts/setup-dev.sh")
   MISSING+=("codex")
 fi
 
@@ -193,5 +193,5 @@ fi
 if [ ${#MISSING[@]} -gt 0 ]; then
   log "still missing after this run: ${MISSING[*]}"
 fi
-log "re-run \`bash scripts/setup-dev.sh\` after addressing the above."
+log "re-run \`bash .codex/scripts/setup-dev.sh\` after addressing the above."
 exit 1

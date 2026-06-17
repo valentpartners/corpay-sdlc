@@ -7,10 +7,10 @@
   },
 
   "paths": {
-    "feature":   "docs/features/{feature-slug}.md",
-    "manifest":  "docs/ai-runs/{feature-slug}/manifest.yaml",
-    "runs":      "docs/ai-runs/{feature-slug}/{story-id}/",
-    "worktrees": ".worktrees/{story-id}/"
+    "feature":   ".codex/docs/features/{feature-slug}.md",
+    "manifest":  ".codex/docs/ai-runs/{feature-slug}/manifest.yaml",
+    "runs":      ".codex/docs/ai-runs/{feature-slug}/{story-id}/",
+    "worktrees": ".codex/.worktrees/{story-id}/"
   },
 
   "caps": {

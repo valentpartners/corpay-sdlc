@@ -8,20 +8,20 @@
 #   1. Refuses to run if any non-terminal story (anything other than `done`
 #      or `wontfix`) still has a worktree — testing isn't complete yet.
 #   2. For each `done` story: rsyncs the worktree's
-#      docs/ai-runs/{slug}/{story-id}/ back into the integration tree
+#      .codex/docs/ai-runs/{slug}/{story-id}/ back into the integration tree
 #      (gitignored — physically present, not committed), then removes the
 #      worktree and local branch.
 #   3. After clean exit, the human invokes `to-qa-handoff` to synthesize the
 #      feature-level QA distribution doc.
 #
 # Usage:
-#   bash scripts/cleanup-codex-worktrees.sh                  # auto-detect manifest by current branch
-#   bash scripts/cleanup-codex-worktrees.sh --feature SLUG   # specify by feature-slug
-#   bash scripts/cleanup-codex-worktrees.sh --dry-run        # report only, don't remove or copy
+#   bash .codex/scripts/cleanup-codex-worktrees.sh                  # auto-detect manifest by current branch
+#   bash .codex/scripts/cleanup-codex-worktrees.sh --feature SLUG   # specify by feature-slug
+#   bash .codex/scripts/cleanup-codex-worktrees.sh --dry-run        # report only, don't remove or copy
 
 set -uo pipefail
 
-REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 AISDLC_JSON="$REPO_ROOT/.codex/aisdlc.json"
 
 FEATURE_SLUG=""
@@ -90,7 +90,7 @@ log "feature=$FEATURE_SLUG manifest=$MANIFEST dry-run=$DRY_RUN"
 
 # --- registered-worktree set (truth for "is this a live worktree?") ---------
 # git worktree list --porcelain is authoritative — a directory under
-# .worktrees/ can outlive its registration (e.g. `git worktree remove`
+# .codex/.worktrees/ can outlive its registration (e.g. `git worktree remove`
 # fails on a leftover build artifact and the dir is orphaned). Such
 # orphans must be rm'd, not poked with `git -C` — git would walk up to
 # the parent repo and surface its state, falsely tripping the dirty check.
@@ -233,5 +233,5 @@ if [ -n "${SKIPPED_DETAIL:-}" ]; then
 fi
 log "feature integration branch ($(yq '.feature.branch' "$MANIFEST")) left alone — delete it manually after merging into protected."
 if [ "$cleaned" -gt 0 ] && [ "$DRY_RUN" = 0 ]; then
-  log "next: invoke \`to-qa-handoff\` to generate docs/ai-runs/$FEATURE_SLUG/qa-handoff.md"
+  log "next: invoke \`to-qa-handoff\` to generate .codex/docs/ai-runs/$FEATURE_SLUG/qa-handoff.md"
 fi

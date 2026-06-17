@@ -5,12 +5,12 @@ disable-model-invocation: true
 ---
 
 ## Main Purpose
-Decompose a sealed feature doc into a manifest of vertical-slice User Stories at `docs/ai-runs/{feature-slug}/manifest.yaml`. Iterate with the human until the breakdown is shared.
+Decompose a sealed feature doc into a manifest of vertical-slice User Stories at `.codex/docs/ai-runs/{feature-slug}/manifest.yaml`. Iterate with the human until the breakdown is shared.
 
 ## Process
 
 ### 1. Resolve source
-Read the named feature doc at `docs/features/{slug}.md`. If a manifest already exists for the same slug, load it — re-runs preserve sticky IDs and in-flight states.
+Read the named feature doc at `.codex/docs/features/{slug}.md`. If a manifest already exists for the same slug, load it — re-runs preserve sticky IDs and in-flight states.
 
 ### 2. Draft the slice breakdown
 Stories function as tracer-bullets: each minimal, each with a user-perceivable validation surface so the human can correct course early.
@@ -25,7 +25,7 @@ On re-run, auto-focus on any slice currently in `needs-info` first. After resolv
 One question per turn. Recommend an answer with each ask. Do not use the AskUserQuestion UI.
 
 ### 4. Write the manifest
-On confirmation, write `docs/ai-runs/{feature-slug}/manifest.yaml` per [manifest-template](./manifest-template.md), and print the DAG of the stories.
+On confirmation, write `.codex/docs/ai-runs/{feature-slug}/manifest.yaml` per [manifest-template](./manifest-template.md), and print the DAG of the stories.
 
 Re-run semantics:
 - **Sticky IDs.** Once assigned, an ID never changes. New slices get the next unused number; gaps are allowed.

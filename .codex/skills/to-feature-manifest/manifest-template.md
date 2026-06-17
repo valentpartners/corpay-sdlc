@@ -1,11 +1,11 @@
 # Manifest template
 
-Body shape for the manifest at `docs/ai-runs/{feature-slug}/manifest.yaml`. One file per feature.
+Body shape for the manifest at `.codex/docs/ai-runs/{feature-slug}/manifest.yaml`. One file per feature.
 
 ```yaml
 feature:
   slug: {feature-slug}
-  doc: docs/features/{feature-slug}.md
+  doc: .codex/docs/features/{feature-slug}.md
   branch: {human-named feature integration branch}
 
 stories:

@@ -1,9 +1,0 @@
-# Paths mirrored into each story worktree on creation, and rsynced back to
-# the integration tree by scripts/cleanup-codex-worktrees.sh at end-of-feature.
-#
-# Use for files the agent needs locally but that should never be pushed to
-# GitHub (typically also listed in .gitignore).
-#
-# One path per line. Trailing slash for directories. Comments start with #.
-
-docs/ai-runs/

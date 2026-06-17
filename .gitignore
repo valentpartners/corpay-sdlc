@@ -1,5 +1,5 @@
-# claude configuration
-.claude/settings.local.json
+# agent configuration
+.codex/settings.local.json
 .worktrees/
 
 # AISDLC runtime artifacts — mirrored into worktrees via .worktreeinclude

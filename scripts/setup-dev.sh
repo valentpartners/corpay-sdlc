@@ -141,6 +141,43 @@ fi
 # --- stack-specific (managed by init-greenfield) ----------------------------
 # init-greenfield appends this project's stack setup below this line.
 
+# Deals AISDLC support repo: application commands run from the Corpay monorepo.
+# Verify the global tools needed to carry assets and work in the target stack.
+
+if have codex; then
+  log "ok: codex ($(command -v codex))"
+else
+  log "missing: codex"
+  MANUAL+=("install Codex CLI, then re-run bash scripts/setup-dev.sh")
+  MISSING+=("codex")
+fi
+
+if have dotnet; then
+  log "ok: dotnet ($(dotnet --version 2>/dev/null || command -v dotnet))"
+else
+  log "missing: dotnet"
+  MANUAL+=("install the .NET SDK used by the Deals monorepo")
+  MISSING+=("dotnet")
+fi
+
+if have node; then
+  log "ok: node ($(node --version 2>/dev/null || command -v node))"
+else
+  log "missing: node"
+  MANUAL+=("install the Node.js LTS/runtime version used by the Deals monorepo")
+  MISSING+=("node")
+fi
+
+if have npm; then
+  log "ok: npm ($(npm --version 2>/dev/null || command -v npm))"
+else
+  log "missing: npm"
+  MANUAL+=("install npm or the package manager used by the Deals monorepo")
+  MISSING+=("npm")
+fi
+
+log "note: no React/.NET dependencies are installed here; run discovered project commands from the Corpay monorepo."
+
 # --- summary ----------------------------------------------------------------
 
 echo "" >&2

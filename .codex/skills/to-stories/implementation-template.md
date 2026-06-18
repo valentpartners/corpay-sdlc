@@ -1,13 +1,13 @@
 # Implementation template
 
-Body shape for `.codex/docs/ai-runs/{feature-slug}/{story-id}/implementation.md`. The working spec the Phase 2 implementation agent consumes.
+Body shape for `docs/ai-runs/{feature-slug}/{story-id}/implementation.md`. The working spec the Phase 2 implementation agent consumes.
 
 ```markdown
 # Implementation brief — {story-id}: {title}
 
 ## Context
 
-- **Feature doc:** [.codex/docs/features/{feature-slug}.md](../../../features/{feature-slug}.md)
+- **Feature doc:** [docs/features/{feature-slug}.md](../../../features/{feature-slug}.md)
 - **Applicable ADRs / rules:** {list, or "none"}
 
 Two to four short paragraphs compacting the feature-doc context relevant to *this slice*. Cover:

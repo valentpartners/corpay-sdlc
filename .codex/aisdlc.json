@@ -6,11 +6,15 @@
     "protected": ["main", "master", "stage", "production"]
   },
 
+  "repositories": {
+    "application": "code"
+  },
+
   "paths": {
-    "feature":   ".codex/docs/features/{feature-slug}.md",
-    "manifest":  ".codex/docs/ai-runs/{feature-slug}/manifest.yaml",
-    "runs":      ".codex/docs/ai-runs/{feature-slug}/{story-id}/",
-    "worktrees": ".codex/.worktrees/{story-id}/"
+    "feature":   "docs/features/{feature-slug}.md",
+    "manifest":  "docs/ai-runs/{feature-slug}/manifest.yaml",
+    "runs":      "docs/ai-runs/{feature-slug}/{story-id}/",
+    "worktrees": ".worktrees/{story-id}/"
   },
 
   "caps": {

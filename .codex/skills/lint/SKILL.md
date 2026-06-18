@@ -9,13 +9,13 @@ Run static analysis for Deals changes in the Corpay monorepo.
 
 ## Preconditions
 
-- Work from the Corpay monorepo, not from the AISDLC support repo.
+- Work from the Corpay monorepo under `code/` when invoked from the AISDLC support repo.
 - Prefer the monorepo's documented lint, format-check, analyzer, or CI validation commands.
 - Avoid broad formatting unless explicitly requested or clearly required by the project convention.
 
 ## Discovery
 
-1. Confirm the current directory is the Corpay monorepo. If it is not, stop and ask for the monorepo path.
+1. Confirm the current directory is the Corpay monorepo. If invoked from the AISDLC support repo, use `code/` as the monorepo path. If neither the current directory nor `code/` is the Corpay monorepo, stop and ask for the path.
 2. Inspect:
    - `package.json` scripts for `lint`, `format`, `typecheck`, or related commands.
    - ESLint, Prettier, TypeScript, Stylelint, or workspace config files.

@@ -1,6 +1,6 @@
 # Feature doc template
 
-Body shape for feature docs at `.codex/docs/features/{slug}.md`. Top-down, durable to less durable. Omit empty sections.
+Body shape for feature docs at `docs/features/{slug}.md`. Top-down, durable to less durable. Omit empty sections.
 
 ```markdown
 # {Feature name}

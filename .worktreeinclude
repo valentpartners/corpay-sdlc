@@ -1,5 +1,5 @@
 # Paths mirrored into each story worktree on creation by
-# .codex/scripts/run-codex-loop.sh.
+# scripts/run-codex-loop.sh.
 #
 # Use for files the agent needs locally but that should never be pushed to
 # GitHub (typically also listed in .gitignore).
@@ -8,14 +8,14 @@
 # One path per line. Trailing slash for directories. Comments start with #.
 
 AGENTS.md
-.codex/.worktreeinclude
+.worktreeinclude
 .codex/aisdlc.json
 .codex/settings.json
-.codex/CONTEXT.md
+CONTEXT.md
 .codex/README.md
 .codex/agents/
 .codex/knowledge/
 .codex/rules/
 .codex/skills/
-.codex/docs/
-.codex/scripts/
+docs/
+scripts/

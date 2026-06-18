@@ -1,8 +1,8 @@
 {
   "_comment": "Project guardrail notes. Codex CLI runtime defaults live in .codex/aisdlc.json and user config lives under CODEX_HOME.",
   "projectNotes": [
-    "This repo stores portable AISDLC assets for Deals; application commands run from the Corpay monorepo.",
-    "Discover React/TypeScript and .NET/C# commands from the monorepo before running build, test, lint, or run actions.",
+    "This repo stores AISDLC harness assets for Deals; application commands run from the nested Corpay monorepo at code/.",
+    "Discover React/TypeScript and .NET/C# commands from code/ before running build, test, lint, or run actions.",
     "Use the legacy Deals application as the behavioral guide for the new Deals microfrontend."
   ],
   "sandbox": {

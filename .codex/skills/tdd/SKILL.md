@@ -42,7 +42,7 @@ RIGHT (vertical):
 
 ### 1. Planning
 
-When exploring the codebase, use [`.codex/CONTEXT.md`](../../CONTEXT.md) so test names and interface vocabulary match the project's language, and respect ADRs in the area you're touching.
+When exploring the codebase, use [`CONTEXT.md`](../../../CONTEXT.md) so test names and interface vocabulary match the project's language, and respect ADRs in the area you're touching.
 
 Before writing any code:
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # AISDLC Phase 2 runner — manifest-driven, GitHub-default.
 #
-# Reads .codex/docs/ai-runs/<feature-slug>/manifest.yaml. The script picks one
+# Reads docs/ai-runs/<feature-slug>/manifest.yaml. The script picks one
 # eligible story at a time, spawns a fresh `codex` in a per-story worktree,
 # runs post-agent gates, pushes the branch, opens or updates the PR, posts a
 # typed `run-summary` PR comment, and flips manifest state. The loop is
@@ -20,14 +20,14 @@
 # the named blocker instead of sleeping forever.
 #
 # Usage:
-#   bash .codex/scripts/run-codex-loop.sh                  # single-shot
-#   bash .codex/scripts/run-codex-loop.sh --watch 300      # poll every 300s until stuck
+#   bash scripts/run-codex-loop.sh                  # single-shot
+#   bash scripts/run-codex-loop.sh --watch 300      # poll every 300s until stuck
 
 set -uo pipefail
 
 # --- 0. constants + arg parsing ---------------------------------------------
 
-REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 AISDLC_JSON="$REPO_ROOT/.codex/aisdlc.json"
 
 WATCH_INTERVAL=0   # 0 = single-shot
@@ -75,14 +75,21 @@ done
 
 [ -f "$AISDLC_JSON" ] || fail "missing $AISDLC_JSON"
 
+APP_REPO_REL=$(jq -r '.repositories.application // "."' "$AISDLC_JSON")
+case "$APP_REPO_REL" in
+  /*|[A-Za-z]:*) APP_REPO_ROOT="$APP_REPO_REL" ;;
+  *) APP_REPO_ROOT="$REPO_ROOT/$APP_REPO_REL" ;;
+esac
+[ -d "$APP_REPO_ROOT" ] || fail "application repository path does not exist: $APP_REPO_ROOT"
+
 if ! gh auth status >/dev/null 2>&1; then
   fail "gh is not authenticated — run \`gh auth login\` first"
 fi
 
 cd "$REPO_ROOT" || fail "cannot cd $REPO_ROOT"
 
-git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-  || fail "not a git repository: $REPO_ROOT"
+git -C "$APP_REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+  || fail "not a git repository or not trusted by git: $APP_REPO_ROOT"
 
 # --- 3. config load ---------------------------------------------------------
 
@@ -129,7 +136,7 @@ LOCKFILE="$REPO_ROOT/$WORKTREES_ROOT/.runner.lock"
 
 # --- 4. branch + manifest resolution ----------------------------------------
 
-INTEGRATION_BRANCH=$(git branch --show-current)
+INTEGRATION_BRANCH=$(git -C "$APP_REPO_ROOT" branch --show-current)
 [ -n "$INTEGRATION_BRANCH" ] || fail "could not determine current branch (detached HEAD?)"
 
 if echo "$INTEGRATION_BRANCH" | grep -qxE "$PROTECTED_BRANCHES"; then
@@ -158,7 +165,7 @@ RUNS_BASE=$(dirname "$(expand_path "$PATH_RUNS_TPL" "$FEATURE_SLUG" "X")")
 RUNNER_LOG="$REPO_ROOT/$RUNS_BASE/runner.log"
 mkdir -p "$(dirname "$RUNNER_LOG")"
 
-log "feature=$FEATURE_SLUG integration=$INTEGRATION_BRANCH manifest=$MANIFEST"
+log "feature=$FEATURE_SLUG integration=$INTEGRATION_BRANCH appRepo=$APP_REPO_ROOT manifest=$MANIFEST"
 
 # --- 5. lockfile ------------------------------------------------------------
 
@@ -178,7 +185,7 @@ trap 'rm -f "$LOCKFILE"' EXIT INT TERM
 
 # `gh` needs to know which repo. We rely on it inferring from the local
 # remote (`gh repo view` returns it). Cache the owner/repo for API calls.
-GH_REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) \
+GH_REPO=$(cd "$APP_REPO_ROOT" && gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) \
   || fail "could not determine GH repo via \`gh repo view\` — is the remote configured?"
 log "gh repo: $GH_REPO"
 
@@ -360,11 +367,11 @@ ensure_worktree() {
   fi
   # Branch may already exist from a prior partial run (worktree removed but
   # branch retained). `git worktree add` handles both with and without -b.
-  if git show-ref --verify --quiet "refs/heads/$branch"; then
-    git worktree add "$wt" "$branch" \
+  if git -C "$APP_REPO_ROOT" show-ref --verify --quiet "refs/heads/$branch"; then
+    git -C "$APP_REPO_ROOT" worktree add "$REPO_ROOT/$wt" "$branch" \
       || fail "git worktree add $wt $branch failed"
   else
-    git worktree add "$wt" -b "$branch" "$INTEGRATION_BRANCH" \
+    git -C "$APP_REPO_ROOT" worktree add "$REPO_ROOT/$wt" -b "$branch" "$INTEGRATION_BRANCH" \
       || fail "git worktree add $wt -b $branch $INTEGRATION_BRANCH failed"
   fi
 }
@@ -375,7 +382,7 @@ copy_path_to_worktree() {
   rel="${rel%/}"
   [ -n "$rel" ] || return 0
   case "$rel" in
-    .codex/.worktrees|.codex/.worktrees/*)
+    .worktrees|.worktrees/*)
       log "skip copy of recursive worktree path: $rel"
       return 0
       ;;
@@ -397,7 +404,7 @@ propagate_workspace_assets() {
   # will not carry them. Mirror the explicit allowlist into the story worktree.
   local sid="$1" wt include rel
   wt=$(worktree_path "$sid")
-  include="$REPO_ROOT/.codex/.worktreeinclude"
+  include="$REPO_ROOT/.worktreeinclude"
   [ -f "$include" ] || fail "missing $include"
   while IFS= read -r rel || [ -n "$rel" ]; do
     rel="${rel%%#*}"
@@ -407,7 +414,7 @@ propagate_workspace_assets() {
   done < "$include"
 }
 
-# Worktree teardown is owned by .codex/scripts/cleanup-codex-worktrees.sh at end-of-feature.
+# Worktree teardown is owned by scripts/cleanup-codex-worktrees.sh at end-of-feature.
 # The runner never removes worktrees on its own — `testing.md` and other runs/
 # artefacts written during preview must survive merge to feed `to-qa-handoff`.
 
@@ -465,6 +472,16 @@ gate_diff_within_caps() {
   fi
 }
 
+gate_no_harness_assets_committed() {
+  local wt="$1" sid="$2" branch bad
+  branch=$(story_branch_name "$sid")
+  bad=$(git -C "$REPO_ROOT/$wt" diff --name-only "$INTEGRATION_BRANCH..$branch" -- .codex AGENTS.md .worktreeinclude CONTEXT.md docs scripts | head -1)
+  if [ -n "$bad" ]; then
+    echo "harness asset committed to application branch: $bad"
+    return 1
+  fi
+}
+
 gate_run_log_present() {
   local wt="$1" sid="$2" n="$3"
   if [ ! -f "$REPO_ROOT/$wt/$(story_runs_dir "$sid")/run-$n.md" ]; then
@@ -476,7 +493,7 @@ gate_run_log_present() {
 gate_worktree_clean() {
   local wt="$1"
   local dirty
-  dirty=$(git -C "$REPO_ROOT/$wt" status --porcelain | head -1)
+  dirty=$(git -C "$REPO_ROOT/$wt" status --porcelain -- . ":(exclude).codex" ":(exclude)AGENTS.md" ":(exclude).worktreeinclude" ":(exclude)CONTEXT.md" ":(exclude)docs" ":(exclude)scripts" | head -1)
   if [ -n "$dirty" ]; then
     echo "worktree has uncommitted changes: '$dirty'"
     return 1
@@ -494,6 +511,7 @@ run_gates() {
   local reason
   reason=$(gate_commits_exist "$wt" "$sid")              || { echo "$reason"; return 1; }
   reason=$(gate_commit_messages_reference_story "$wt" "$sid") || { echo "$reason"; return 1; }
+  reason=$(gate_no_harness_assets_committed "$wt" "$sid") || { echo "$reason"; return 1; }
   reason=$(gate_diff_within_caps "$wt" "$sid")           || { echo "$reason"; return 1; }
   reason=$(gate_run_log_present "$wt" "$sid" "$n")       || { echo "$reason"; return 1; }
   reason=$(gate_worktree_clean "$wt")                    || { echo "$reason"; return 1; }
@@ -547,6 +565,10 @@ Do not push, do not open or update any PR, do not post any comment — the
 harness owns every remote-side write. Your job is: ground the touch
 surface, vertical-slice TDD per logical unit, commit locally, write the
 next run log at $(story_runs_dir "$sid")/run-$n.md, then exit.
+
+Do not commit AGENTS.md, .worktreeinclude, CONTEXT.md, docs/, scripts/, or
+anything under .codex/. Those files are copied into this worktree as harness
+context only.
 EOF
 
   if [ -n "$feedback" ]; then
@@ -747,7 +769,7 @@ post_run_summary() {
   run_log="$REPO_ROOT/$(worktree_path "$sid")/$(story_runs_dir "$sid")/run-$n.md"
   [ -f "$run_log" ] || { log "post_run_summary: $run_log missing"; return 1; }
 
-  body=$(printf '## [Type: %s | by: .codex/scripts/run-codex-loop.sh | run %s]\n\n%s' \
+  body=$(printf '## [Type: %s | by: scripts/run-codex-loop.sh | run %s]\n\n%s' \
            "$COMMENT_TYPE_RUN_SUMMARY" "$n" "$(cat "$run_log")")
   gh pr comment "$pr" -R "$GH_REPO" --body "$body" >/dev/null \
     || { log "gh pr comment failed for PR #$pr"; return 1; }
@@ -760,7 +782,7 @@ post_diagnostics_comment() {
   pr=$(manifest_story_field "$sid" pr)
   pr_exists "$pr" || return 0   # no PR to comment on
   body=$(cat <<EOF
-## [Type: $COMMENT_TYPE_DIAGNOSTICS | by: .codex/scripts/run-codex-loop.sh | run $n]
+## [Type: $COMMENT_TYPE_DIAGNOSTICS | by: scripts/run-codex-loop.sh | run $n]
 
 > *Generated by AI during the AISDLC workflow.*
 
@@ -785,21 +807,21 @@ EOF
 # as --base, so `gh pr create` fails outright if it was never pushed. Push it
 # once up front rather than discovering the failure per-story.
 ensure_integration_pushed() {
-  if git ls-remote --exit-code --heads origin "$INTEGRATION_BRANCH" >/dev/null 2>&1; then
+  if git -C "$APP_REPO_ROOT" ls-remote --exit-code --heads origin "$INTEGRATION_BRANCH" >/dev/null 2>&1; then
     log "integration branch '$INTEGRATION_BRANCH' present on origin"
     return 0
   fi
   log "integration branch '$INTEGRATION_BRANCH' not on origin — pushing"
-  ( cd "$REPO_ROOT" && git push -u origin "$INTEGRATION_BRANCH" ) \
+  ( cd "$APP_REPO_ROOT" && git push -u origin "$INTEGRATION_BRANCH" ) \
     || fail "failed to push integration branch '$INTEGRATION_BRANCH' to origin"
 }
 
 # Reconcile pr-open stories: detect merges, flip done, cleanup.
 sync_remote() {
   log "sync: git fetch + reconcile pr-open stories"
-  git fetch origin "$INTEGRATION_BRANCH" 2>/dev/null || true
+  git -C "$APP_REPO_ROOT" fetch origin "$INTEGRATION_BRANCH" 2>/dev/null || true
   # Fast-forward pull only.
-  git pull --ff-only origin "$INTEGRATION_BRANCH" 2>/dev/null || true
+  git -C "$APP_REPO_ROOT" pull --ff-only origin "$INTEGRATION_BRANCH" 2>/dev/null || true
 
   local sid pr state
   while IFS= read -r sid; do

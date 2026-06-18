@@ -9,7 +9,7 @@
 # runner and skills depend on:
 #   git, jq, rsync   — standard apt packages
 #   yq               — mikefarah/yq Go binary (NOT the apt `yq` python wrapper;
-#                      the manifest queries in .codex/scripts/ use mikefarah syntax)
+#                      the manifest queries in scripts/ use mikefarah syntax)
 #   gh               — GitHub CLI (the runner pushes, opens PRs, posts comments)
 #
 # Anything needing sudo or an interactive login (`gh auth login`) is left for
@@ -19,10 +19,13 @@
 # near the bottom of this file once the project's stack is settled.
 #
 # Usage:
-#   bash .codex/scripts/setup-dev.sh            # check + install missing baseline tools
-#   bash .codex/scripts/setup-dev.sh --check    # report only, install nothing
+#   bash scripts/setup-dev.sh            # check + install missing baseline tools
+#   bash scripts/setup-dev.sh --check    # report only, install nothing
 
 set -uo pipefail
+
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+APP_REPO="$REPO_ROOT/code"
 
 CHECK_ONLY=0
 while [ "$#" -gt 0 ]; do
@@ -141,14 +144,27 @@ fi
 # --- stack-specific (managed by init-greenfield) ----------------------------
 # init-greenfield appends this project's stack setup below this line.
 
-# Deals AISDLC support repo: application commands run from the Corpay monorepo.
+# Deals AISDLC support repo: application commands run from the nested Corpay monorepo.
 # Verify the global tools needed to carry assets and work in the target stack.
+
+if [ -d "$APP_REPO" ]; then
+  log "ok: nested Corpay monorepo path exists ($APP_REPO)"
+  if git -C "$APP_REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    log "ok: code/ is a git repository"
+  else
+    log "warning: code/ exists but git cannot inspect it"
+    MANUAL+=("git config --global --add safe.directory '$APP_REPO'   # if git reports dubious ownership")
+  fi
+else
+  log "missing: nested Corpay monorepo at $APP_REPO"
+  MANUAL+=("clone or move the Corpay monorepo to '$APP_REPO'")
+fi
 
 if have codex; then
   log "ok: codex ($(command -v codex))"
 else
   log "missing: codex"
-  MANUAL+=("install Codex CLI, then re-run bash .codex/scripts/setup-dev.sh")
+  MANUAL+=("install Codex CLI, then re-run bash scripts/setup-dev.sh")
   MISSING+=("codex")
 fi
 
@@ -176,7 +192,7 @@ else
   MISSING+=("npm")
 fi
 
-log "note: no React/.NET dependencies are installed here; run discovered project commands from the Corpay monorepo."
+log "note: no React/.NET dependencies are installed at the harness root; run discovered project commands from code/."
 
 # --- summary ----------------------------------------------------------------
 
@@ -193,5 +209,5 @@ fi
 if [ ${#MISSING[@]} -gt 0 ]; then
   log "still missing after this run: ${MISSING[*]}"
 fi
-log "re-run \`bash .codex/scripts/setup-dev.sh\` after addressing the above."
+log "re-run \`bash scripts/setup-dev.sh\` after addressing the above."
 exit 1

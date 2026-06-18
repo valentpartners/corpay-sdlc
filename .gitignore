@@ -1,4 +1,7 @@
 # Codex local/runtime artifacts
 .codex/settings.local.json
-.codex/.worktrees/
-.codex/docs/ai-runs/
+.worktrees/
+docs/ai-runs/
+
+# Nested Corpay monorepo checkout used for feature work
+code/

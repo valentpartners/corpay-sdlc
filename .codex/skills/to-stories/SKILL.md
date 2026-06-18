@@ -12,7 +12,7 @@ The "no surprises" bar: the human should not be surprised by any downstream impl
 ## Process
 
 ### 1. Locate manifest
-Read `.codex/docs/ai-runs/{feature-slug}/manifest.yaml`. Build the loop order with TaskCreate: every story with `state: drafted`, predecessors first.
+Read `docs/ai-runs/{feature-slug}/manifest.yaml`. Build the loop order with TaskCreate: every story with `state: drafted`, predecessors first.
 
 ### 2. Per story, in sequence
 
@@ -31,7 +31,7 @@ One question/confirmation per turn; recommend an answer for any questions. Do no
 If a concern reveals the slice is fundamentally wrong (can't ship as one PR, depends on prior-art that doesn't exist, decomposes into two), flip the slice to `needs-info` in the manifest with a comment naming the issue, then skip to the next slice whose predecessors are still satisfiable.
 
 #### 2c. Write `implementation.md`
-Path: `.codex/docs/ai-runs/{feature-slug}/{story-id}/implementation.md`.
+Path: `docs/ai-runs/{feature-slug}/{story-id}/implementation.md`.
 
 Body shape: [implementation-template](./implementation-template.md). Self-contained — the agent should not need to open the feature doc or the manifest when implementing the plan.
 

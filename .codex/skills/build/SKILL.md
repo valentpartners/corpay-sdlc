@@ -9,13 +9,13 @@ Build the Deals implementation from the Corpay monorepo. This support repo does 
 
 ## Preconditions
 
-- Work from the Corpay monorepo, not from the AISDLC support repo.
+- Work from the Corpay monorepo under `code/` when invoked from the AISDLC support repo.
 - Identify the relevant Deals microfrontend, BFF, Domain services, and legacy reference project paths before running commands.
 - Do not invent build commands. Prefer repo scripts, solution files, project files, and existing docs.
 
 ## Discovery
 
-1. Confirm the current directory is the Corpay monorepo. If it is not, stop and ask for the monorepo path.
+1. Confirm the current directory is the Corpay monorepo. If invoked from the AISDLC support repo, use `code/` as the monorepo path. If neither the current directory nor `code/` is the Corpay monorepo, stop and ask for the path.
 2. Inspect build clues:
    - `package.json` files and `scripts` entries.
    - `.sln`, `.slnx`, `.csproj`, `Directory.Build.props`, `global.json`.

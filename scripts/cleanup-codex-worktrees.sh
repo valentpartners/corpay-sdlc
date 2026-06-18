@@ -8,20 +8,20 @@
 #   1. Refuses to run if any non-terminal story (anything other than `done`
 #      or `wontfix`) still has a worktree — testing isn't complete yet.
 #   2. For each `done` story: rsyncs the worktree's
-#      .codex/docs/ai-runs/{slug}/{story-id}/ back into the integration tree
+#      docs/ai-runs/{slug}/{story-id}/ back into the integration tree
 #      (gitignored — physically present, not committed), then removes the
 #      worktree and local branch.
 #   3. After clean exit, the human invokes `to-qa-handoff` to synthesize the
 #      feature-level QA distribution doc.
 #
 # Usage:
-#   bash .codex/scripts/cleanup-codex-worktrees.sh                  # auto-detect manifest by current branch
-#   bash .codex/scripts/cleanup-codex-worktrees.sh --feature SLUG   # specify by feature-slug
-#   bash .codex/scripts/cleanup-codex-worktrees.sh --dry-run        # report only, don't remove or copy
+#   bash scripts/cleanup-codex-worktrees.sh                  # auto-detect manifest by current branch
+#   bash scripts/cleanup-codex-worktrees.sh --feature SLUG   # specify by feature-slug
+#   bash scripts/cleanup-codex-worktrees.sh --dry-run        # report only, don't remove or copy
 
 set -uo pipefail
 
-REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 AISDLC_JSON="$REPO_ROOT/.codex/aisdlc.json"
 
 FEATURE_SLUG=""
@@ -49,6 +49,15 @@ done
 [ -f "$AISDLC_JSON" ] || fail "missing $AISDLC_JSON"
 cd "$REPO_ROOT" || fail "cannot cd $REPO_ROOT"
 
+APP_REPO_REL=$(jq -r '.repositories.application // "."' "$AISDLC_JSON")
+case "$APP_REPO_REL" in
+  /*|[A-Za-z]:*) APP_REPO_ROOT="$APP_REPO_REL" ;;
+  *) APP_REPO_ROOT="$REPO_ROOT/$APP_REPO_REL" ;;
+esac
+[ -d "$APP_REPO_ROOT" ] || fail "application repository path does not exist: $APP_REPO_ROOT"
+git -C "$APP_REPO_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+  || fail "not a git repository or not trusted by git: $APP_REPO_ROOT"
+
 BRANCH_PREFIX=$(jq -r '.branches.prefix' "$AISDLC_JSON")
 PATH_MANIFEST_TPL=$(jq -r '.paths.manifest' "$AISDLC_JSON")
 PATH_WORKTREES_TPL=$(jq -r '.paths.worktrees' "$AISDLC_JSON")
@@ -67,7 +76,7 @@ if [ -n "$FEATURE_SLUG" ]; then
   MANIFEST="$REPO_ROOT/$(expand_path "$PATH_MANIFEST_TPL" "$FEATURE_SLUG")"
   [ -f "$MANIFEST" ] || fail "no manifest at $MANIFEST"
 else
-  current_branch=$(git branch --show-current)
+  current_branch=$(git -C "$APP_REPO_ROOT" branch --show-current)
   [ -n "$current_branch" ] || fail "could not determine current branch; pass --feature SLUG"
   MANIFEST_GLOB="$REPO_ROOT/${PATH_MANIFEST_TPL//\{feature-slug\}/*}"
   for candidate in $MANIFEST_GLOB; do
@@ -90,7 +99,7 @@ log "feature=$FEATURE_SLUG manifest=$MANIFEST dry-run=$DRY_RUN"
 
 # --- registered-worktree set (truth for "is this a live worktree?") ---------
 # git worktree list --porcelain is authoritative — a directory under
-# .codex/.worktrees/ can outlive its registration (e.g. `git worktree remove`
+# .worktrees/ can outlive its registration (e.g. `git worktree remove`
 # fails on a leftover build artifact and the dir is orphaned). Such
 # orphans must be rm'd, not poked with `git -C` — git would walk up to
 # the parent repo and surface its state, falsely tripping the dirty check.
@@ -99,7 +108,7 @@ while IFS= read -r line; do
   case "$line" in
     "worktree "*) REGISTERED_WORKTREES["${line#worktree }"]=1 ;;
   esac
-done < <(git worktree list --porcelain)
+done < <(git -C "$APP_REPO_ROOT" worktree list --porcelain)
 
 wt_registered() { [ -n "${REGISTERED_WORKTREES["$REPO_ROOT/$1"]:-}" ]; }
 
@@ -152,8 +161,8 @@ while IFS=$'\t' read -r sid state; do
   elif [ -d "$REPO_ROOT/$wt" ]; then
     wt_orphan=1
   fi
-  git show-ref --verify --quiet "refs/heads/$branch" && br_present=1
-  git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 && remote_present=1
+  git -C "$APP_REPO_ROOT" show-ref --verify --quiet "refs/heads/$branch" && br_present=1
+  git -C "$APP_REPO_ROOT" ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 && remote_present=1
 
   if [ "$wt_live" = 0 ] && [ "$wt_orphan" = 0 ] && [ "$br_present" = 0 ] && [ "$remote_present" = 0 ]; then
     skipped_missing=$((skipped_missing + 1))
@@ -164,7 +173,7 @@ while IFS=$'\t' read -r sid state; do
   # didn't push. Orphan dirs aren't real worktrees; running git status from
   # inside one walks up to the parent repo (false positive). They're handled
   # by the rm -rf safety-net below.
-  if [ "$wt_live" = 1 ] && [ -n "$(git -C "$REPO_ROOT/$wt" status --porcelain 2>/dev/null)" ]; then
+  if [ "$wt_live" = 1 ] && [ -n "$(git -C "$REPO_ROOT/$wt" status --porcelain -- . ":(exclude).codex" ":(exclude)AGENTS.md" ":(exclude).worktreeinclude" ":(exclude)CONTEXT.md" ":(exclude)docs" ":(exclude)scripts" 2>/dev/null)" ]; then
     log "warn: $sid — worktree has uncommitted changes; skipping (resolve manually)"
     skipped_dirty=$((skipped_dirty + 1))
     SKIPPED_DETAIL+=("$sid: dirty worktree")
@@ -197,7 +206,7 @@ while IFS=$'\t' read -r sid state; do
     # done and merged; nothing in the worktree is worth preserving past this
     # point. Without --force, a stray untracked file leaves an orphan dir
     # behind — the exact failure mode this script is trying to prevent.
-    git worktree remove --force "$wt" 2>/dev/null \
+    git -C "$APP_REPO_ROOT" worktree remove --force "$REPO_ROOT/$wt" 2>/dev/null \
       || { log "  warn: failed to remove worktree $wt (will rm dir as fallback)"; }
   fi
   # Safety-net: catch both orphans we inherited and registered worktrees
@@ -207,13 +216,13 @@ while IFS=$'\t' read -r sid state; do
       && [ "$wt_orphan" = 1 ] && log "  removed orphan dir $wt"
   fi
   if [ "$br_present" = 1 ]; then
-    git branch -D "$branch" 2>/dev/null \
+    git -C "$APP_REPO_ROOT" branch -D "$branch" 2>/dev/null \
       || { log "  warn: failed to delete branch $branch"; }
   fi
   # The story branch was pushed to the remote for its PR; delete it there too,
   # otherwise merged story branches accumulate on the remote forever.
   if [ "$remote_present" = 1 ]; then
-    git push origin --delete "$branch" >/dev/null 2>&1 \
+    git -C "$APP_REPO_ROOT" push origin --delete "$branch" >/dev/null 2>&1 \
       && log "  deleted remote branch origin/$branch" \
       || { log "  warn: failed to delete remote branch origin/$branch"; }
   fi
@@ -233,5 +242,5 @@ if [ -n "${SKIPPED_DETAIL:-}" ]; then
 fi
 log "feature integration branch ($(yq '.feature.branch' "$MANIFEST")) left alone — delete it manually after merging into protected."
 if [ "$cleaned" -gt 0 ] && [ "$DRY_RUN" = 0 ]; then
-  log "next: invoke \`to-qa-handoff\` to generate .codex/docs/ai-runs/$FEATURE_SLUG/qa-handoff.md"
+  log "next: invoke \`to-qa-handoff\` to generate docs/ai-runs/$FEATURE_SLUG/qa-handoff.md"
 fi

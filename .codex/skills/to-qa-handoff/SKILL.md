@@ -14,7 +14,7 @@ Resolve the feature slug from the optional arg; no-arg picks the most recent fea
 - Feature doc exists at `docs/features/{slug}.md`.
 - Manifest exists at `docs/ai-runs/{slug}/manifest.yaml`.
 - Every story is `done` or `wontfix`. If any story is in another state, refuse — testing isn't complete.
-- Per-story `testing.md` files exist at `docs/ai-runs/{slug}/{story-id}/testing.md` for each `done` story. If any are missing, the cleanup script likely hasn't run yet — refuse and tell the human to run `scripts/cleanup-codex-worktrees.sh` first.
+- Per-story `testing.md` files exist at `docs/ai-runs/{slug}/{story-id}/testing.md` for each `done` story. If any are missing, the cleanup script likely hasn't run yet — refuse and tell the human to run `scripts/windows/cleanup-codex-worktrees.ps1` first.
 
 ### 2. Read the inputs
 - Feature doc — parse `<product-behavior>`: Flows (`### Flow N: ...`) and R-bullets within each.
@@ -52,4 +52,4 @@ Tell the human: "QA handoff doc sealed at `docs/ai-runs/{slug}/qa-handoff.md`. R
 - **Read-only on inputs.** Does not modify the feature doc, manifest, or per-story `testing.md`.
 - **No PR actions.** Does not open or gate the integration → protected-branch PR; humans drive that.
 - **No test execution.** AFK was already done per-story by the testing phase; results are inputs here, not actions to repeat.
-- **Refuse on incomplete inputs.** Pre-`done` story → refuse. Missing `testing.md` files in the integration tree → refuse and point to `scripts/cleanup-codex-worktrees.sh`.
+- **Refuse on incomplete inputs.** Pre-`done` story → refuse. Missing `testing.md` files in the integration tree → refuse and point to `scripts/windows/cleanup-codex-worktrees.ps1`.

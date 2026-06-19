@@ -13,14 +13,14 @@ Codex-ready AISDLC assets for Deals development at Corpay.
 
 1. Clone this repo.
 2. Clone or place the Corpay monorepo at `code/` inside this repo.
-3. Run `bash scripts/setup-dev.sh` to verify the AISDLC harness tools and global monorepo toolchain.
+3. Run `powershell.exe -ExecutionPolicy Bypass -File .\scripts\windows\setup-dev.ps1` to verify the AISDLC harness tools, Bitbucket auth, and global monorepo toolchain.
 4. Use the active command skills (`build`, `test`, `lint`, `run`) to discover and run the correct commands from the relevant Deals project paths under `code/`.
 
 ## Development
 
-- `bash scripts/setup-dev.sh` - verifies baseline AISDLC tooling plus global `codex`, `dotnet`, `node`, and `npm` availability.
-- `bash scripts/run-codex-loop.sh` - runs the AISDLC story implementation loop against the current integration branch in `code/`.
-- `bash scripts/cleanup-codex-worktrees.sh` - copies back run artifacts and removes completed story worktrees.
+- `powershell.exe -ExecutionPolicy Bypass -File .\scripts\windows\setup-dev.ps1` - verifies baseline AISDLC tooling, Bitbucket REST access, and global `codex`, `dotnet`, `node`, and `npm` availability.
+- `powershell.exe -ExecutionPolicy Bypass -File .\scripts\windows\run-codex-loop.ps1` - runs the AISDLC story implementation loop against the current integration branch in `code/`, opening story PRs in Bitbucket.
+- `powershell.exe -ExecutionPolicy Bypass -File .\scripts\windows\cleanup-codex-worktrees.ps1` - copies back run artifacts and removes completed story worktrees.
 - Dev-command skills are discovery-first because the executable project files live under `code/`, not in the harness root.
 
 ## Local Layout
@@ -28,7 +28,14 @@ Codex-ready AISDLC assets for Deals development at Corpay.
 - Harness assets live at this repo root: `AGENTS.md`, `.codex/`, and this README.
 - Application code lives in the nested Corpay monorepo checkout at `code/`.
 - `code/` is ignored by this harness repo; commit application changes using the git repo inside `code/`.
-- If git reports dubious ownership for `code/`, run `git config --global --add safe.directory C:/Users/Ethan.Haugen/Documents/corpay-sdlc/code` in your terminal.
+- If git reports dubious ownership for `code/`, run `git config --global --add safe.directory C:/Users/Ethan.Haugen/Documents/corpay-sdlc/code` in Windows.
+
+## Source Control
+
+- Story and integration PRs live in Bitbucket Server/DC at `https://bitbucket.cambridgefx.com/projects/C/repos/code`.
+- Bitbucket settings are in `.codex/aisdlc.json` under `sourceControl`.
+- The scripts read `BITBUCKET_API_TOKEN` from the environment or from your Codex config.
+- If setup reports that Bitbucket cannot be reached, fix Windows VPN/DNS/proxy access before debugging the token.
 
 ## Codex setup
 

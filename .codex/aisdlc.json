@@ -10,6 +10,14 @@
     "application": "code"
   },
 
+  "sourceControl": {
+    "provider": "bitbucket",
+    "baseUrl": "https://bitbucket.cambridgefx.com",
+    "projectKey": "C",
+    "repositorySlug": "code",
+    "apiTokenEnv": "BITBUCKET_API_TOKEN"
+  },
+
   "paths": {
     "feature":   "docs/features/{feature-slug}.md",
     "manifest":  "docs/ai-runs/{feature-slug}/manifest.yaml",

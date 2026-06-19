@@ -14,7 +14,7 @@ Tracer-bullet design: every vertical slice has a user-visible surface, so `previ
 
 ### 1. Locate the story's worktree
 
-Story branches follow `{branches.prefix}{story-id}` (from `aisdlc.json`). Worktree at `.worktrees/{story-id}/`. If missing, refuse — the runner hasn't worked on this story yet or `cleanup-codex-worktrees.sh` already tore it down.
+Story branches follow `{branches.prefix}{story-id}` (from `aisdlc.json`). Worktree at `.worktrees/{story-id}/`. If missing, refuse — the runner hasn't worked on this story yet or `cleanup-codex-worktrees.ps1` already tore it down.
 
 ### 2. Boot the env (subagent A)
 
@@ -69,7 +69,7 @@ Per finding (AFK fail OR human observation during the walk), the human chooses o
 
 ### 6. Append testing.md inline
 
-Throughout the session, append to `docs/ai-runs/{slug}/{story-id}/testing.md` (lives inside the worktree's runs dir; gitignored; copied back to the integration tree by `cleanup-codex-worktrees.sh` at end-of-feature). Same inline-update pattern as `grill-with-docs` — append as things happen, don't synthesize at session close, so if the chat dies the record survives.
+Throughout the session, append to `docs/ai-runs/{slug}/{story-id}/testing.md` (lives inside the worktree's runs dir; gitignored; copied back to the integration tree by `cleanup-codex-worktrees.ps1` at end-of-feature). Same inline-update pattern as `grill-with-docs` — append as things happen, don't synthesize at session close, so if the chat dies the record survives.
 
 Contents:
 - Story ID + title.
@@ -81,15 +81,15 @@ Contents:
 
 ### 7. Exit
 
-When the human is satisfied, they merge the story PR via the GitHub UI (or `gh pr merge`). Preview's job is done — kill the background services and exit.
+When the human is satisfied, they merge the story PR in Bitbucket. Preview's job is done — kill the background services and exit.
 
-The runner detects the merge on its next iteration, flips `state → done`, and leaves the worktree + local branch in place. Teardown happens at end-of-feature via `cleanup-codex-worktrees.sh`.
+The runner detects the merge on its next iteration, flips `state → done`, and leaves the worktree + local branch in place. Teardown happens at end-of-feature via `cleanup-codex-worktrees.ps1`.
 
 ## What this does not do
 
-- **Does not open or merge the story PR.** The human merges via GitHub UI when satisfied.
+- **Does not open or merge the story PR.** The human merges it in Bitbucket when satisfied.
 - **Does not flip manifest state.** The runner flips `pr-open → done` on its next iteration after merge.
-- **Does not remove the worktree.** `cleanup-codex-worktrees.sh` handles teardown at end-of-feature.
+- **Does not remove the worktree.** `cleanup-codex-worktrees.ps1` handles teardown at end-of-feature.
 - **Does not post a PR comment** with the test plan. The chat + `testing.md` + PR thread are the record.
 - **Does not run AFK on flows it can't isolate** (shared-state destructive ops). Those become HITL prompts.
 - **Does not apply DB migrations to shared environments.** Schema changes get a manual human approval before preview runs (project-specific gate).

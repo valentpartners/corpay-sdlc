@@ -1,5 +1,5 @@
 # Paths mirrored into each story worktree on creation by
-# scripts/run-codex-loop.sh.
+# scripts/windows/run-codex-loop.ps1.
 #
 # Use for files the agent needs locally but that should never be pushed to
 # GitHub (typically also listed in .gitignore).

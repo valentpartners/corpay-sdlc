@@ -1,6 +1,6 @@
 # Manifest template
 
-Body shape for the manifest at `docs/ai-runs/{feature-slug}/manifest.yaml`. One file per feature.
+Body shape for the manifest at `docs/ai-runs/{feature-slug}/manifest.yaml`. One file per feature. The folder uses the feature slug; the runner matches the current application branch against `feature.branch`.
 
 ```yaml
 feature:
@@ -37,6 +37,7 @@ stories:
 - **validation** — user-perceivable behaviours the test phase will verify. Sealed at design time; feeds Phase 3 directly.
 - **blocked_by** — list of IDs whose `state` must be `done` before this slice is eligible.
 - **state** — one of the structural states documented in [`.codex/skills/README.md`](../../README.md) (e.g., `drafted`, `ready-for-agent`, `agent-dev`, `pr-open`, `done`, `needs-info`, `ready-for-human`, `wontfix`).
+- **feature.branch** — exact integration branch in `code/` that the runner should match. Confirm with the human or default to `git -C code branch --show-current`; do not infer it from `feature.slug`.
 
 Optional fields:
 

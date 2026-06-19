@@ -6,14 +6,14 @@ The canonical reference for:
 
 Skills are self-contained leaf functions; this doc is the only place that explains *when* to activate them.
 
-The manifest at `docs/ai-runs/{feature-slug}/manifest.yaml` is the **single source of truth** for story state. The runner reads it; phase skills read and write it.
+The manifest at `docs/ai-runs/{feature-slug}/manifest.yaml` is the **single source of truth** for story state. The runner reads it; phase skills read and write it. The directory is keyed by feature slug, while `feature.branch` inside the manifest must exactly match the current application integration branch.
 
 ## TL;DR
 
 | Phase | Driver | Skills | Artefact at exit |
 |-------|--------|--------|------------------|
 | Design | Human, in chat | `grill-with-docs` ↔ `to-feature` (loop) → `to-feature-manifest` → `to-stories` | Sealed feature doc; manifest with vertical-slice stories; per-story `implementation.md` on disk. |
-| Build & Validate | Runner (autonomous) + human (in chat, per story) | Per story: runner spawns `implement-story` → human runs `preview` → merges PR. After all `done`: `cleanup-codex-worktrees.sh` → `to-qa-handoff` | Every story merged into integration; per-story `testing.md` on disk; QA handoff doc sealed; integration PR ready to open. |
+| Build & Validate | Runner (autonomous) + human (in chat, per story) | Per story: runner spawns `implement-story` → human runs `preview` → merges PR. After all `done`: `cleanup-codex-worktrees.ps1` → `to-qa-handoff` | Every story merged into integration; per-story `testing.md` on disk; QA handoff doc sealed; integration PR ready to open. |
 
 The feature integration branch ships into a protected branch (e.g., `stage`) as a single human-reviewed PR after every story is `done`, the cleanup script has run, and the QA handoff doc is sealed.
 
@@ -54,6 +54,7 @@ Compacts the chat into a sealed feature doc at `docs/features/{slug}.md`. Re-run
 Reads the sealed feature doc and drafts vertical-slice stories into `docs/ai-runs/{slug}/manifest.yaml`.
 
 - Iterates with the human in chat; chat is the iteration surface, the manifest is the sealed output.
+- Confirms the feature integration branch before writing; default recommendation is `git -C code branch --show-current`.
 - Per-story fields: `id`, `title`, `description`, `covers`, `touches`, `validation`, `blocked_by`, `state`.
 - Sticky IDs (`NNN-{short-slug}`); re-runs preserve in-flight states. New slices get `drafted`; removed slices get `wontfix` (never deleted).
 - Confirmation mindset — does **not** re-open product or architectural decisions; hand back to `to-feature` if a design call is unsettled.
@@ -78,13 +79,13 @@ If a slice is fundamentally wrong (e.g., should be split into two), `to-stories`
 - Kick off the runner — it picks up DAG-eligible stories from the manifest and implements them autonomously in their own worktrees.
 - Per `pr-open` story: open a fresh chat in its worktree and run `preview`. Env boots, AFK Playwright runs in parallel, chat narrates HITL flows for you to walk.
 - Iterate on findings — either pair with Codex in the preview chat, or drop a PR comment for the runner to re-spawn the implement agent. Mix freely.
-- Merge the story PR via GitHub when validated. The runner unblocks DAG children; you move to the next `pr-open` story while the runner keeps building independent ones.
-- When every story is `done`: run `cleanup-codex-worktrees.sh`, invoke `to-qa-handoff`, then open the integration → protected-branch PR.
+- Merge the story PR in Bitbucket when validated. The runner unblocks DAG children; you move to the next `pr-open` story while the runner keeps building independent ones.
+- When every story is `done`: run `cleanup-codex-worktrees.ps1`, invoke `to-qa-handoff`, then open the integration → protected-branch PR.
 
 **End state:** every story merged into integration; per-story `testing.md` on disk; `qa-handoff.md` sealed; integration PR ready to open.
 
 ### Details
-- **Drivers:** runner (`scripts/run-codex-loop.sh`, autonomous) + you (in chat, per story). Concurrent — runner advances DAG-independent work while you test.
+- **Drivers:** runner (`scripts/windows/run-codex-loop.ps1`, autonomous) + you (in chat, per story). Concurrent — runner advances DAG-independent work while you test.
 - **Inputs:** sealed feature doc, manifest, per-story `implementation.md` from Phase 1.
 - **Skills:** `implement-story` (inside runner-spawned `codex`), `preview` (you, per story), `to-qa-handoff` (you, end-of-feature). Out-of-scope findings dispatch via `new-work-item`.
 - **Artefacts:** per-story PRs merged, `testing.md` per story, `qa-handoff.md` per feature.
@@ -94,9 +95,9 @@ If a slice is fundamentally wrong (e.g., should be split into two), `to-stories`
 
 The runner is invoked from the harness repo, but application git operations target the repository configured at `repositories.application` in `.codex/aisdlc.json` (`code/` for this setup). Check out the feature integration branch in `code/` before running the harness script.
 
-```bash
-bash scripts/run-codex-loop.sh                  # single-shot — process every eligible story, exit
-bash scripts/run-codex-loop.sh --watch 300      # long-running — poll every 300s, pick up new work
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\windows\run-codex-loop.ps1
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\windows\run-codex-loop.ps1 --watch 300
 ```
 
 Sequential per story; **non-blocking on PR merges** — keeps picking up independent stories while open PRs sit in human-review. Single instance only (lockfile at `.worktrees/.runner.lock`). Refuses to run from any branch in `branches.protected`.
@@ -107,7 +108,7 @@ See [Runner internals](#runner-internals) for iteration mechanics, gates, and re
 
 `preview` is init-generated, stack-specialized. One skill, one chat, in the story's worktree. Tracer-bullet design — every vertical slice has a user-visible surface, so every story walks through this flow.
 
-1. **Boot env (subagent A).** Build and run services + portals. Print URLs, PIDs, kill commands. *While the env is booting, you can review the PR in GitHub and drop comments — those become a runner re-spawn signal (see step 4, PR-comment path).*
+1. **Boot env (subagent A).** Build and run services + portals. Print URLs, PIDs, kill commands. *While the env is booting, you can review the PR in Bitbucket and drop comments — those become a runner re-spawn signal (see step 4, PR-comment path).*
 2. **AFK Playwright (`playwright-tester` subagent, parallel).** Explore the diff → callers → user-visible flows. Pick up to `caps.afk.maxFlows` flows within `caps.afk.wallClockSec` budget. The `playwright-tester` agent (defined at `.codex/agents/playwright-tester.md`) drives each flow via `playwright-cli` headless, throwaway DOM assertions, no test files written. Runs as a dedicated test user provisioned at boot. Reports pass/fail per flow inline — for each failed flow, also reports which changed file(s) the flow exercised so you can judge in-scope vs pre-existing in seconds.
 3. **Narrate HITL (main chat).** From the story's `validation` bullets + diff, Codex tells you which flows to walk in your own browser. AFK results stream in alongside.
 4. **Iterate** per finding:
@@ -116,7 +117,7 @@ See [Runner internals](#runner-internals) for iteration mechanics, gates, and re
      - **In-chat pairing** — ask Codex here; commits + push happen in the worktree; hot-reload picks up. Fast loop.
      - **PR comment** — the runner re-spawns the implement agent on its next iteration; agent commits to the same worktree; hot-reload picks up too. Best for big changes.
 5. **Append `testing.md` inline.** Throughout the session, Codex appends to `docs/ai-runs/{slug}/{story-id}/testing.md`: AFK flows + results, HITL prompts narrated, your feedback, commit SHAs of in-chat fixes. The chat may die; the file is the record (and the input to `to-qa-handoff` later).
-6. **Merge.** When satisfied, merge the PR via the GitHub UI (or `gh pr merge`). The runner detects the merge on its next iteration, flips `state → done`, leaves the worktree + branch in place for cleanup.
+6. **Merge.** When satisfied, merge the PR in Bitbucket. The runner detects the merge on its next iteration, flips `state → done`, leaves the worktree + branch in place for cleanup.
 
 ### Working alongside the runner
 
@@ -132,17 +133,17 @@ Two real constraints:
 - **Runner cadence isn't instant.** `--watch 300` polls every 5 minutes; the agent spawn itself runs for 10–30 minutes. PR-comment feedback shows up in your worktree after that window. During the wait, keep walking parts of preview unrelated to the comment, or open a fresh chat in another `pr-open` story's worktree.
 - **DAG depth caps concurrency.** Wide DAGs let the runner stay busy. Deep linear DAGs serialize to your merge cadence.
 
-**Worktrees pile up by design.** Every `done` story's worktree (and the `testing.md` written there) stays until `cleanup-codex-worktrees.sh` runs at end-of-feature. This protects testing artefacts from being lost and keeps the env bootable in case QA flags something later.
+**Worktrees pile up by design.** Every `done` story's worktree (and the `testing.md` written there) stays until `cleanup-codex-worktrees.ps1` runs at end-of-feature. This protects testing artefacts from being lost and keeps the env bootable in case QA flags something later.
 
-### End-of-feature — `cleanup-codex-worktrees.sh` → `to-qa-handoff`
+### End-of-feature — `cleanup-codex-worktrees.ps1` → `to-qa-handoff`
 
 Once every story is `done` (or `wontfix`):
 
 1. **Run the cleanup script** from the integration branch:
-   ```bash
-   bash scripts/cleanup-codex-worktrees.sh
+   ```powershell
+   powershell.exe -ExecutionPolicy Bypass -File .\scripts\windows\cleanup-codex-worktrees.ps1
    ```
-   For each `done` story: rsync that story's `docs/ai-runs/{slug}/{story-id}/` artifacts from the worktree → integration tree (still gitignored — physically present, not committed), then `git worktree remove` + `git branch -D`. Bails if any non-`done` story still has a worktree.
+   For each `done` story: copy that story's `docs/ai-runs/{slug}/{story-id}/` artifacts from the worktree → integration tree with `robocopy` (still gitignored — physically present, not committed), then `git worktree remove` + `git branch -D`. Bails if any non-`done` story still has a worktree.
 
 2. **Invoke `to-qa-handoff`** in a fresh chat from the integration branch. Reads the feature doc's `<product-behavior>` Flows, all per-story `testing.md` files, and the manifest. Synthesizes into `docs/ai-runs/{slug}/qa-handoff.md` — page-organized (by user-facing route, not by story), with per-page checklists and named end-to-end scenarios. Iterates with you in chat; chat is the iteration surface, the doc is the sealed output.
 
@@ -169,7 +170,7 @@ State machine on each manifest story. Vocabulary is structural — defined here,
 | `pr-open` | Runner only | Agent opened the story PR; awaiting human review / merge. Blocks dependents. Re-runs triggered by PR comments. |
 | `ready-for-human` | `to-stories` | Cannot be delegated. Judgment / external access / design call. |
 | `wontfix` | `to-feature-manifest` (removed slice), or human | Will not be actioned. Terminal. |
-| `done` | Runner on merge detection | Story PR merged into integration. The only state that unblocks dependents. Worktree + local branch persist until `cleanup-codex-worktrees.sh` runs at end-of-feature. |
+| `done` | Runner on merge detection | Story PR merged into integration. The only state that unblocks dependents. Worktree + local branch persist until `cleanup-codex-worktrees.ps1` runs at end-of-feature. |
 
 Categories (exactly one): `bug`, `enhancement`. Override (zero or more): `large-diff-ok` exempts the story from the diff cap.
 
@@ -198,11 +199,11 @@ Story PRs always target the integration branch. The integration → protected-br
 
 ### Bounded write surface
 The runner is the only writer for:
-- Story branches (`{branches.prefix}{story-id}`) — created, pushed, force-updated by the runner. Deleted by `cleanup-codex-worktrees.sh`, not by the runner.
+- Story branches (`{branches.prefix}{story-id}`) — created, pushed, force-updated by the runner. Deleted by `cleanup-codex-worktrees.ps1`, not by the runner.
 - The manifest's machine-managed states (`agent-dev`, `pr-open`, `done`) and the `pr:` field.
 - PR comments carrying the `## [Type: ...]` header (`run-summary`, `agent-diagnostics`, `pre-run-audit`).
 
-The cleanup script (`scripts/cleanup-codex-worktrees.sh`) is the sole writer for:
+The cleanup script (`scripts/windows/cleanup-codex-worktrees.ps1`) is the sole writer for:
 - Worktree teardown (`git worktree remove`).
 - Local story-branch deletion (`git branch -D`).
 - Copy-back of per-story run artifacts from each worktree → integration tree (gitignored, working-tree only).
@@ -217,18 +218,18 @@ Everything else (integration branch, protected branch, design-time manifest fiel
 - **Diff cap** (`caps.diffFiles` / `caps.diffLines`) — override via `large-diff-ok`.
 - **Per-story wall clock** (`caps.perStoryWallClockSec`) — runner kills the agent process if it's chewing too long.
 - **Worktree isolation** — every story runs in its own worktree.
-- **Worktree retention through `done`** — runner does not tear down on merge; `testing.md` and runs/ artefacts survive into end-of-feature cleanup. `cleanup-codex-worktrees.sh` is the sole teardown path and bails on any non-`done` story with a worktree.
+- **Worktree retention through `done`** — runner does not tear down on merge; `testing.md` and runs/ artefacts survive into end-of-feature cleanup. `cleanup-codex-worktrees.ps1` is the sole teardown path and bails on any non-`done` story with a worktree.
 - **Single-runner lockfile** at `.worktrees/.runner.lock` — prevents concurrent invocations.
 - **No automatic protected-branch merge** — humans always merge integration → protected.
 
 ### Setup checklist
 One-time, when bootstrapping a new project from this scaffold:
-1. Run `bash scripts/setup-dev.sh` to install + verify the harness prerequisites (`git`, `jq`, `rsync`, `yq`, `gh`) and check `gh auth status`. It prints any sudo/interactive steps for you to run yourself.
+1. Run `powershell.exe -ExecutionPolicy Bypass -File .\scripts\windows\setup-dev.ps1` to verify the harness prerequisites (`git`, `jq`, `curl.exe`, `yq`, `robocopy.exe`) and check Bitbucket REST access. It prints any manual install/secret setup steps for you to run yourself.
 2. Ask Codex to run `init-greenfield` to specialize for your stack. It:
    - Interviews the project lead for the basics and fills `AGENTS.md` / `README.md`.
    - Activates the build / test / lint / run / deploy skills matching the chosen stack.
    - Confirms `branches.protected` / `branches.prefix` in `aisdlc.json` and records stack-specific command notes in `.codex/settings.json` if useful.
-   - Appends the stack's setup to `scripts/setup-dev.sh`.
+   - Appends the stack's setup to `scripts/windows/setup-dev.ps1`.
 
 ### Runner internals
 
@@ -236,7 +237,7 @@ Mechanical detail for debugging the runner. Not needed for day-to-day shipping.
 
 #### Each iteration
 
-1. **Sync remote.** `git fetch`; `git pull` the integration branch if behind. For every story currently `pr-open`: check the linked PR — if merged, flip to `done`. Leave the worktree and local branch in place — `cleanup-codex-worktrees.sh` handles teardown at end-of-feature.
+1. **Sync remote.** `git fetch`; `git pull` the integration branch if behind. For every story currently `pr-open`: check the linked PR — if merged, flip to `done`. Leave the worktree and local branch in place — `cleanup-codex-worktrees.ps1` handles teardown at end-of-feature.
 2. **Pick.** Next eligible story:
    - `state: ready-for-agent` + all `blocked_by` are `done` (first run), OR
    - `state: pr-open` + all `blocked_by` are `done` + a fresh human PR comment exists newer than the latest agent `run-summary` (re-run from feedback), OR
@@ -255,22 +256,22 @@ Mechanical detail for debugging the runner. Not needed for day-to-day shipping.
    - `codex` exited 0.
 
    One gate failure → flip to `needs-info`, log the named gate, leave the worktree intact, continue.
-9. **Push + PR.** `git push -u origin {story-branch}`. On run 1, `gh pr create --base {integration} --head {story-branch}` with the structured body; capture PR number into the manifest entry's `pr:` field. On subsequent runs, the push updates the existing PR.
-10. **Post run-summary.** Read `run-<n>.md`, prepend `## [Type: run-summary | by: scripts/run-codex-loop.sh | run <n>]`, post via `gh pr comment`.
+9. **Push + PR.** `git push -u origin {story-branch}`. On run 1, create a Bitbucket PR from the story branch to the integration branch with the structured body; capture the PR id into the manifest entry's `pr:` field. On subsequent runs, the push updates the existing PR.
+10. **Post run-summary.** Read `run-<n>.md`, prepend `## [Type: run-summary | by: scripts/windows/run-codex-loop.ps1 | run <n>]`, post it as a Bitbucket PR comment.
 11. **Flip state.** `state → pr-open`. Continue.
 
 #### Re-run semantics (PR-comment feedback channel)
 
 The human reviews the PR and leaves comments — issue-level, line-level, review summaries. **No state flip required.** The runner detects fresh feedback by **watermark**:
 - The watermark is the most recent `## [Type: ...]` comment authored by the runner on the PR.
-- Any comment from a `User`-type GitHub account newer than the watermark is a re-run signal. Bot comments (CI, dependabot, etc.) are ignored.
+- Any non-typed Bitbucket PR comment newer than the watermark is a re-run signal.
 
 On a re-run pick, the runner bundles every post-watermark human comment into the spawn prompt:
 - **General comments** — author, timestamp, body.
 - **Line-level review comments** — grouped by file with `path`, `line`, `diff_hunk` showing the code context, body, threaded replies in chronological order.
 - **Review summaries** — `APPROVE` / `REQUEST_CHANGES` / `COMMENT` with body.
 
-Inlined verbatim. The agent re-reads `implementation.md` plus prior `run-<n>.md` files. The story stays `pr-open` throughout; the agent's new `run-summary` becomes the new watermark. GH's "resolved thread" state is ignored — only the watermark filter matters.
+Inlined verbatim. The agent re-reads `implementation.md` plus prior `run-<n>.md` files. The story stays `pr-open` throughout; the agent's new `run-summary` becomes the new watermark. Bitbucket's resolved-thread state is ignored — only the watermark filter matters.
 
 `implementation.md` stays **frozen** across re-runs. If the plan is fundamentally wrong, flip the story to `drafted` and re-run `to-stories`.
 

@@ -15,13 +15,13 @@
 #      feature-level QA distribution doc.
 #
 # Usage:
-#   bash scripts/cleanup-codex-worktrees.sh                  # auto-detect manifest by current branch
-#   bash scripts/cleanup-codex-worktrees.sh --feature SLUG   # specify by feature-slug
-#   bash scripts/cleanup-codex-worktrees.sh --dry-run        # report only, don't remove or copy
+#   bash scripts/linux/cleanup-codex-worktrees.sh                  # auto-detect manifest by current branch
+#   bash scripts/linux/cleanup-codex-worktrees.sh --feature SLUG   # specify by feature-slug
+#   bash scripts/linux/cleanup-codex-worktrees.sh --dry-run        # report only, don't remove or copy
 
 set -uo pipefail
 
-REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 AISDLC_JSON="$REPO_ROOT/.codex/aisdlc.json"
 
 FEATURE_SLUG=""

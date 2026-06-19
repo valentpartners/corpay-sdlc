@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AISDLC Phase 2 runner — manifest-driven, GitHub-default.
+# AISDLC Phase 2 runner — manifest-driven, Bitbucket-backed.
 #
 # Reads docs/ai-runs/<feature-slug>/manifest.yaml. The script picks one
 # eligible story at a time, spawns a fresh `codex` in a per-story worktree,
@@ -20,14 +20,14 @@
 # the named blocker instead of sleeping forever.
 #
 # Usage:
-#   bash scripts/run-codex-loop.sh                  # single-shot
-#   bash scripts/run-codex-loop.sh --watch 300      # poll every 300s until stuck
+#   bash scripts/linux/run-codex-loop.sh                  # single-shot
+#   bash scripts/linux/run-codex-loop.sh --watch 300      # poll every 300s until stuck
 
 set -uo pipefail
 
 # --- 0. constants + arg parsing ---------------------------------------------
 
-REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 AISDLC_JSON="$REPO_ROOT/.codex/aisdlc.json"
 
 WATCH_INTERVAL=0   # 0 = single-shot
@@ -67,9 +67,48 @@ log()  {
 }
 fail() { log "ERROR: $*"; exit 1; }
 
+windows_home_from_repo() {
+  case "$REPO_ROOT" in
+    /mnt/*/Users/*/*) echo "$REPO_ROOT" | sed -E 's#^(/mnt/[^/]+/Users/[^/]+).*$#\1#' ;;
+    /?/[Uu]sers/*/*) echo "$REPO_ROOT" | sed -E 's#^(/[^/]+/[Uu]sers/[^/]+).*$#\1#' ;;
+  esac
+}
+
+codex_config_candidates() {
+  [ -n "${CODEX_CONFIG:-}" ] && echo "$CODEX_CONFIG"
+  [ -n "${HOME:-}" ] && echo "$HOME/.codex/config.toml"
+  local win_home
+  win_home=$(windows_home_from_repo || true)
+  [ -n "$win_home" ] && echo "$win_home/.codex/config.toml"
+}
+
+read_codex_config_key() {
+  local key="$1" file value
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    [ -f "$file" ] || continue
+    value=$(sed -nE "s/^[[:space:]]*$key[[:space:]]*=[[:space:]]*\"([^\"]*)\"[[:space:]]*$/\1/p" "$file" | tail -n 1)
+    if [ -n "$value" ]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+  done < <(codex_config_candidates | awk '!seen[$0]++')
+  return 1
+}
+
+load_secret() {
+  local var="$1" value
+  value="${!var:-}"
+  if [ -n "$value" ]; then
+    printf '%s\n' "$value"
+    return 0
+  fi
+  read_codex_config_key "$var"
+}
+
 # --- 2. tooling preflight ---------------------------------------------------
 
-for tool in git gh jq yq codex timeout setsid; do
+for tool in git jq yq codex timeout setsid curl; do
   command -v "$tool" >/dev/null || fail "$tool required on PATH"
 done
 
@@ -81,10 +120,6 @@ case "$APP_REPO_REL" in
   *) APP_REPO_ROOT="$REPO_ROOT/$APP_REPO_REL" ;;
 esac
 [ -d "$APP_REPO_ROOT" ] || fail "application repository path does not exist: $APP_REPO_ROOT"
-
-if ! gh auth status >/dev/null 2>&1; then
-  fail "gh is not authenticated — run \`gh auth login\` first"
-fi
 
 cd "$REPO_ROOT" || fail "cannot cd $REPO_ROOT"
 
@@ -110,6 +145,22 @@ PER_STORY_WALL_CLOCK=$(jq -r '.caps.perStoryWallClockSec' "$AISDLC_JSON")
 SANDBOX_MODE=$(jq -r '.runner.sandboxMode // "workspace-write"' "$AISDLC_JSON")
 APPROVAL_POLICY=$(jq -r '.runner.approvalPolicy // "on-request"' "$AISDLC_JSON")
 MODEL=$(jq -r '.runner.model // empty' "$AISDLC_JSON")
+
+SCM_PROVIDER=$(jq -r '.sourceControl.provider // "bitbucket"' "$AISDLC_JSON")
+if [ "$SCM_PROVIDER" != "bitbucket" ]; then
+  fail "unsupported sourceControl.provider '$SCM_PROVIDER' (this runner expects bitbucket)"
+fi
+BB_BASE_URL=$(jq -r '.sourceControl.baseUrl // empty' "$AISDLC_JSON")
+BB_PROJECT_KEY=$(jq -r '.sourceControl.projectKey // empty' "$AISDLC_JSON")
+BB_REPO_SLUG=$(jq -r '.sourceControl.repositorySlug // empty' "$AISDLC_JSON")
+BB_TOKEN_ENV=$(jq -r '.sourceControl.apiTokenEnv // "BITBUCKET_API_TOKEN"' "$AISDLC_JSON")
+[ -n "$BB_BASE_URL" ] || fail "sourceControl.baseUrl required for Bitbucket"
+[ -n "$BB_PROJECT_KEY" ] || fail "sourceControl.projectKey required for Bitbucket"
+[ -n "$BB_REPO_SLUG" ] || fail "sourceControl.repositorySlug required for Bitbucket"
+BB_BASE_URL="${BB_BASE_URL%/}"
+BB_REST_PATH="/rest/api/latest/projects/$BB_PROJECT_KEY/repos/$BB_REPO_SLUG"
+BB_TOKEN=$(load_secret "$BB_TOKEN_ENV" 2>/dev/null || true)
+[ -n "$BB_TOKEN" ] || fail "$BB_TOKEN_ENV required in environment or Codex config for Bitbucket API"
 
 PATH_MANIFEST_TPL=$(jq -r '.paths.manifest' "$AISDLC_JSON")
 PATH_RUNS_TPL=$(jq -r '.paths.runs' "$AISDLC_JSON")
@@ -181,13 +232,32 @@ fi
 echo "$$" > "$LOCKFILE"
 trap 'rm -f "$LOCKFILE"' EXIT INT TERM
 
-# --- 6. gh remote derivation ------------------------------------------------
+# --- 6. Bitbucket API probe -------------------------------------------------
 
-# `gh` needs to know which repo. We rely on it inferring from the local
-# remote (`gh repo view` returns it). Cache the owner/repo for API calls.
-GH_REPO=$(cd "$APP_REPO_ROOT" && gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) \
-  || fail "could not determine GH repo via \`gh repo view\` — is the remote configured?"
-log "gh repo: $GH_REPO"
+bb_api() {
+  # $1 method, $2 REST path including query, optional $3 JSON body.
+  local method="$1" path="$2" data="${3-}" url
+  url="$BB_BASE_URL$path"
+  if [ $# -ge 3 ]; then
+    curl -fsS \
+      -X "$method" \
+      -H "Authorization: Bearer $BB_TOKEN" \
+      -H "Accept: application/json" \
+      -H "Content-Type: application/json" \
+      --data "$data" \
+      "$url"
+  else
+    curl -fsS \
+      -X "$method" \
+      -H "Authorization: Bearer $BB_TOKEN" \
+      -H "Accept: application/json" \
+      "$url"
+  fi
+}
+
+bb_api GET "$BB_REST_PATH" >/dev/null \
+  || fail "could not read Bitbucket repo $BB_PROJECT_KEY/$BB_REPO_SLUG with $BB_TOKEN_ENV"
+log "bitbucket repo: $BB_PROJECT_KEY/$BB_REPO_SLUG ($BB_BASE_URL)"
 
 # --- 7. manifest helpers ----------------------------------------------------
 
@@ -250,89 +320,151 @@ manifest_first_undone_predecessor() {
   return 1
 }
 
-# --- 8. GitHub helpers ------------------------------------------------------
+# --- 8. Bitbucket helpers ---------------------------------------------------
 
 pr_exists() {
-  # $1 = pr number; returns 0 if it exists in this repo.
+  # $1 = PR id; returns 0 if it exists in this repo.
   [ -n "$1" ] && [ "$1" != "null" ] \
-    && gh pr view "$1" -R "$GH_REPO" --json number >/dev/null 2>&1
+    && bb_api GET "$BB_REST_PATH/pull-requests/$1" >/dev/null 2>&1
 }
 
 pr_is_merged() {
-  # $1 = pr number
+  # $1 = PR id
   local state
-  state=$(gh pr view "$1" -R "$GH_REPO" --json state -q .state 2>/dev/null || echo "")
+  state=$(bb_api GET "$BB_REST_PATH/pull-requests/$1" 2>/dev/null | jq -r '.state // empty' || echo "")
   [ "$state" = "MERGED" ]
 }
 
-# Returns the latest createdAt (ISO-8601) of any comment authored by us that
-# starts with the `## [Type:` typed-header convention. Empty string if none.
-pr_watermark() {
-  local pr="$1"
-  {
-    gh api "repos/$GH_REPO/issues/$pr/comments" \
-      --paginate -q '.[] | select(.body | startswith("## [Type:")) | .created_at'
-    gh api "repos/$GH_REPO/pulls/$pr/comments" \
-      --paginate -q '.[] | select(.body | startswith("## [Type:")) | .created_at'
-  } 2>/dev/null | sort -r | head -1
+bb_pr_activities_json() {
+  # $1 = PR id; echoes a flat JSON array of activity values.
+  local pr="$1" start=0 page is_last next out
+  out='[]'
+  while :; do
+    page=$(bb_api GET "$BB_REST_PATH/pull-requests/$pr/activities?limit=100&start=$start") || return 1
+    out=$(jq -s '.[0] + (.[1].values // [])' <<<"$out"$'\n'"$page")
+    is_last=$(jq -r '.isLastPage // true' <<<"$page")
+    [ "$is_last" = "true" ] && break
+    next=$(jq -r '.nextPageStart // empty' <<<"$page")
+    [ -n "$next" ] || break
+    start="$next"
+  done
+  printf '%s\n' "$out"
 }
 
-# Echoes a markdown bundle of every post-watermark User-authored comment.
+bb_pr_comments_json() {
+  # $1 = PR id; echoes normalized top-level Bitbucket comments.
+  bb_pr_activities_json "$1" | jq '
+    [
+      .[]
+      | select(.action == "COMMENTED")
+      | select(.comment != null)
+      | {
+          id: (.comment.id // null),
+          createdDate: (.comment.createdDate // 0),
+          createdIso: (((.comment.createdDate // 0) / 1000) | todateiso8601),
+          author: (.comment.author.displayName // .comment.author.name // .comment.author.emailAddress // "unknown"),
+          text: (.comment.text // ""),
+          anchor: (.commentAnchor // null),
+          replies: [
+            (.comment.comments // [])[]
+            | {
+                id: (.id // null),
+                createdDate: (.createdDate // 0),
+                createdIso: (((.createdDate // 0) / 1000) | todateiso8601),
+                author: (.author.displayName // .author.name // .author.emailAddress // "unknown"),
+                text: (.text // "")
+              }
+          ]
+        }
+    ]'
+}
+
+bb_find_open_pr_for_branch() {
+  # $1 = from branch, $2 = target branch. Echoes PR id or empty.
+  local from_ref="refs/heads/$1" to_ref="refs/heads/$2"
+  local start=0 page is_last next hit
+  while :; do
+    page=$(bb_api GET "$BB_REST_PATH/pull-requests?state=OPEN&limit=100&start=$start") || return 1
+    hit=$(jq -r --arg from_ref "$from_ref" --arg to_ref "$to_ref" '
+      .values[]
+      | select(.fromRef.id == $from_ref)
+      | select(.toRef.id == $to_ref)
+      | .id
+    ' <<<"$page" | head -1)
+    if [ -n "$hit" ]; then
+      printf '%s\n' "$hit"
+      return 0
+    fi
+    is_last=$(jq -r '.isLastPage // true' <<<"$page")
+    [ "$is_last" = "true" ] && break
+    next=$(jq -r '.nextPageStart // empty' <<<"$page")
+    [ -n "$next" ] || break
+    start="$next"
+  done
+}
+
+# Returns the latest createdDate (epoch milliseconds) of any comment that starts
+# with the `## [Type:` typed-header convention. Empty string if none.
+pr_watermark() {
+  local pr="$1"
+  bb_pr_comments_json "$pr" 2>/dev/null \
+    | jq -r '[.[] | select(.text | startswith("## [Type:")) | .createdDate] | max // empty'
+}
+
+# Echoes a markdown bundle of every post-watermark human comment.
 # Empty output means no fresh feedback.
 pr_human_feedback_bundle() {
-  local pr="$1" watermark="$2"
-  local since_filter='true'
-  if [ -n "$watermark" ]; then
-    # jq comparison on ISO-8601 strings is lexicographic, which is correct.
-    since_filter=".created_at > \"$watermark\""
-  fi
+  local pr="$1" watermark="$2" since comments replies all general inline
+  since="${watermark:-0}"
 
-  local issue_comments review_comments review_summaries
-  issue_comments=$(gh api "repos/$GH_REPO/issues/$pr/comments" --paginate \
-    -q "[.[] | select(.user.type == \"User\") | select($since_filter) | select(.body | startswith(\"## [Type:\") | not)]")
-  review_comments=$(gh api "repos/$GH_REPO/pulls/$pr/comments" --paginate \
-    -q "[.[] | select(.user.type == \"User\") | select($since_filter)]")
-  review_summaries=$(gh api "repos/$GH_REPO/pulls/$pr/reviews" --paginate \
-    -q "[.[] | select(.user.type == \"User\") | select(.submitted_at != null) | select(.submitted_at > \"${watermark:-0000}\") | select(.body != null and .body != \"\")]")
+  comments=$(bb_pr_comments_json "$pr") || return 1
+  general=$(jq --argjson since "$since" '
+    [
+      .[]
+      | select(.createdDate > $since)
+      | select(.text | startswith("## [Type:") | not)
+    ]' <<<"$comments")
+  replies=$(jq --argjson since "$since" '
+    [
+      .[]
+      | . as $parent
+      | .replies[]
+      | select(.createdDate > $since)
+      | select(.text | startswith("## [Type:") | not)
+      | . + {anchor: $parent.anchor, parentId: $parent.id}
+    ]' <<<"$comments")
+  all=$(jq -s 'add | sort_by(.createdDate)' <<<"$general"$'\n'"$replies")
+  [ "$(jq 'length' <<<"$all")" -gt 0 ] || return 1
 
-  # Bail early if nothing post-watermark.
-  local total
-  total=$(jq -s 'add | length' <<<"$issue_comments"$'\n'"$review_comments"$'\n'"$review_summaries")
-  [ "$total" -gt 0 ] || return 1
+  general=$(jq '[.[] | select(.anchor == null)]' <<<"$all")
+  inline=$(jq '[.[] | select(.anchor != null)]' <<<"$all")
 
   {
     echo "## Human feedback on PR #$pr since the last run-summary"
 
-    if [ "$(jq 'length' <<<"$issue_comments")" -gt 0 ]; then
+    if [ "$(jq 'length' <<<"$general")" -gt 0 ]; then
       echo ""
       echo "### General comments"
-      jq -r '.[] | "- [\(.created_at)] \(.user.login): \(.body | gsub("\n"; "\n  "))"' <<<"$issue_comments"
+      jq -r '.[] | "- [\(.createdIso)] \(.author): \(.text | gsub("\r?\n"; "\n  "))"' <<<"$general"
     fi
 
-    if [ "$(jq 'length' <<<"$review_comments")" -gt 0 ]; then
+    if [ "$(jq 'length' <<<"$inline")" -gt 0 ]; then
       echo ""
       echo "### Line comments (grouped by file)"
-      # Group by path, then by line, preserve chronological order within.
       jq -r '
-        sort_by(.path, .line // .original_line, .created_at)
-        | group_by(.path)
+        sort_by(.anchor.path // "unknown", .anchor.line // 0, .createdDate)
+        | group_by(.anchor.path // "unknown")
         | .[] |
-          "\n**\(.[0].path)**\n" +
+          "\n**\(.[0].anchor.path // "unknown")**\n" +
           (
-            group_by(.line // .original_line)
+            group_by(.anchor.line // 0)
             | map(
-                "\nL\(.[0].line // .[0].original_line):\n```diff\n\(.[0].diff_hunk // "")\n```\n" +
-                (map("- [\(.created_at)] \(.user.login): \(.body | gsub("\n"; "\n  "))") | join("\n"))
+                "\nL\(.[0].anchor.line // "?"):\n" +
+                (map("- [\(.createdIso)] \(.author): \(.text | gsub("\r?\n"; "\n  "))") | join("\n"))
               )
             | join("\n")
           )
-      ' <<<"$review_comments"
-    fi
-
-    if [ "$(jq 'length' <<<"$review_summaries")" -gt 0 ]; then
-      echo ""
-      echo "### Review summaries"
-      jq -r '.[] | "- [\(.submitted_at)] \(.user.login) (\(.state)): \(.body | gsub("\n"; "\n  "))"' <<<"$review_summaries"
+      ' <<<"$inline"
     fi
   }
   return 0
@@ -414,7 +546,7 @@ propagate_workspace_assets() {
   done < "$include"
 }
 
-# Worktree teardown is owned by scripts/cleanup-codex-worktrees.sh at end-of-feature.
+# Worktree teardown is owned by scripts/linux/cleanup-codex-worktrees.sh at end-of-feature.
 # The runner never removes worktrees on its own — `testing.md` and other runs/
 # artefacts written during preview must survive merge to feed `to-qa-handoff`.
 
@@ -746,14 +878,42 @@ open_or_update_pr() {
 EOF
 )
 
-  local create_out
-  create_out=$(gh pr create -R "$GH_REPO" --base "$INTEGRATION_BRANCH" --head "$branch" \
-                 --title "$title" --body "$body" 2>&1) \
-    || { log "gh pr create failed for $branch: $create_out"; return 1; }
-  pr_num=$(echo "$create_out" | grep -oE 'pull/[0-9]+' | head -1 | sed 's|pull/||')
+  existing=$(bb_find_open_pr_for_branch "$branch" "$INTEGRATION_BRANCH" 2>/dev/null || true)
+  if [ -n "$existing" ]; then
+    manifest_set_pr "$sid" "$existing"
+    log "PR #$existing already open for $sid — manifest updated"
+    return 0
+  fi
+
+  local payload create_out
+  payload=$(jq -n \
+    --arg title "$title" \
+    --arg description "$body" \
+    --arg from_ref "refs/heads/$branch" \
+    --arg to_ref "refs/heads/$INTEGRATION_BRANCH" \
+    --arg project_key "$BB_PROJECT_KEY" \
+    --arg repo_slug "$BB_REPO_SLUG" \
+    '{
+      title: $title,
+      description: $description,
+      state: "OPEN",
+      open: true,
+      closed: false,
+      fromRef: {
+        id: $from_ref,
+        repository: { slug: $repo_slug, project: { key: $project_key } }
+      },
+      toRef: {
+        id: $to_ref,
+        repository: { slug: $repo_slug, project: { key: $project_key } }
+      }
+    }')
+  create_out=$(bb_api POST "$BB_REST_PATH/pull-requests" "$payload" 2>&1) \
+    || { log "Bitbucket PR create failed for $branch: $create_out"; return 1; }
+  pr_num=$(jq -r '.id // empty' <<<"$create_out")
 
   if [ -z "$pr_num" ]; then
-    log "gh pr create did not return a PR number for $branch"
+    log "Bitbucket PR create did not return a PR id for $branch"
     return 1
   fi
 
@@ -769,10 +929,10 @@ post_run_summary() {
   run_log="$REPO_ROOT/$(worktree_path "$sid")/$(story_runs_dir "$sid")/run-$n.md"
   [ -f "$run_log" ] || { log "post_run_summary: $run_log missing"; return 1; }
 
-  body=$(printf '## [Type: %s | by: scripts/run-codex-loop.sh | run %s]\n\n%s' \
+  body=$(printf '## [Type: %s | by: scripts/linux/run-codex-loop.sh | run %s]\n\n%s' \
            "$COMMENT_TYPE_RUN_SUMMARY" "$n" "$(cat "$run_log")")
-  gh pr comment "$pr" -R "$GH_REPO" --body "$body" >/dev/null \
-    || { log "gh pr comment failed for PR #$pr"; return 1; }
+  bb_api POST "$BB_REST_PATH/pull-requests/$pr/comments" "$(jq -n --arg text "$body" '{text: $text}')" >/dev/null \
+    || { log "Bitbucket PR comment failed for PR #$pr"; return 1; }
   log "run-summary posted on PR #$pr (run $n)"
 }
 
@@ -782,7 +942,7 @@ post_diagnostics_comment() {
   pr=$(manifest_story_field "$sid" pr)
   pr_exists "$pr" || return 0   # no PR to comment on
   body=$(cat <<EOF
-## [Type: $COMMENT_TYPE_DIAGNOSTICS | by: scripts/run-codex-loop.sh | run $n]
+## [Type: $COMMENT_TYPE_DIAGNOSTICS | by: scripts/linux/run-codex-loop.sh | run $n]
 
 > *Generated by AI during the AISDLC workflow.*
 
@@ -798,13 +958,13 @@ State: \`agent-dev\` → \`needs-info\`. Fix the blocker, then either re-tag
 another pass (the next runner iteration will pick the fresh feedback up).
 EOF
 )
-  gh pr comment "$pr" -R "$GH_REPO" --body "$body" >/dev/null || true
+  bb_api POST "$BB_REST_PATH/pull-requests/$pr/comments" "$(jq -n --arg text "$body" '{text: $text}')" >/dev/null || true
 }
 
 # --- 13. iteration body -----------------------------------------------------
 
 # Ensure the integration branch exists on origin. Every story PR opens with it
-# as --base, so `gh pr create` fails outright if it was never pushed. Push it
+# as the target branch, so Bitbucket PR create fails if it was never pushed. Push it
 # once up front rather than discovering the failure per-story.
 ensure_integration_pushed() {
   if git -C "$APP_REPO_ROOT" ls-remote --exit-code --heads origin "$INTEGRATION_BRANCH" >/dev/null 2>&1; then

@@ -9,22 +9,10 @@ Read and review a Bitbucket Server/DC PR for the repository configured in `.code
 
 ## Process
 
-### 1. Resolve the PR number
-- URL or explicit id → extract the numeric pull request id.
-- Branch name → list open PRs in Bitbucket and match `fromRef.displayId` / `fromRef.id`.
-- No input → list open PRs and pick from the list with the human.
+### 1. Load the PR
+Use [`get-pr-from-bitbucket`](../get-pr-from-bitbucket/SKILL.md) to resolve the numeric id and fetch metadata, changed files, the unified diff, and the comment threads. Prefer the Bitbucket MCP for comments/activities when available. Honour existing thread state; don't reopen a resolved thread without the human asking.
 
-### 2. Fetch the diff and metadata
-- Read PR metadata from `/rest/api/latest/projects/{projectKey}/repos/{repoSlug}/pull-requests/{id}`.
-- Read changed files from `/pull-requests/{id}/changes`.
-- Read the unified diff from `/pull-requests/{id}/diff`.
-
-### 3. Read existing threads
-- Prefer the Bitbucket MCP when available for comments and activities.
-- Otherwise read `/pull-requests/{id}/activities?limit=100` and paginate with `nextPageStart`.
-- Honour existing thread state; don't reopen a resolved thread without the human asking.
-
-### 4. Post a comment
+### 2. Post a comment
 
 **PR-level** — top-level Bitbucket PR comment:
 ```bash

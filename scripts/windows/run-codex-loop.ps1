@@ -98,9 +98,57 @@ function Invoke-Text([string]$Command, [string[]]$Arguments, [switch]$AllowFailu
   return ($output -join "`n").Trim()
 }
 
+function Resolve-GitCommonDir([string]$RepoRoot) {
+  $commonDir = Invoke-Text 'git' @('-C', $RepoRoot, 'rev-parse', '--git-common-dir')
+  if (-not $commonDir) {
+    Fail "could not resolve git common dir for $RepoRoot"
+  }
+  if ([System.IO.Path]::IsPathRooted($commonDir)) {
+    return [System.IO.Path]::GetFullPath($commonDir)
+  }
+  return [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $commonDir))
+}
+
+function Resolve-GitDir([string]$RepoRoot) {
+  $gitDir = Invoke-Text 'git' @('-C', $RepoRoot, 'rev-parse', '--git-dir')
+  if (-not $gitDir) {
+    Fail "could not resolve git dir for $RepoRoot"
+  }
+  if ([System.IO.Path]::IsPathRooted($gitDir)) {
+    return [System.IO.Path]::GetFullPath($gitDir)
+  }
+  return [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $gitDir))
+}
+
 function Test-NativeSuccess([string]$Command, [string[]]$Arguments) {
   & $Command @Arguments *> $null
   return $LASTEXITCODE -eq 0
+}
+
+function Invoke-NativeQuiet([string]$Command, [string[]]$Arguments, [switch]$AllowFailure) {
+  $previousErrorActionPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $output = & $Command @Arguments 2>&1
+    $code = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+  }
+
+  if ($code -ne 0) {
+    if ($AllowFailure) {
+      return $false
+    }
+    $snippet = (($output | ForEach-Object { $_.ToString() }) -join "`n").Trim()
+    if ($snippet.Length -gt 800) {
+      $snippet = $snippet.Substring(0, 800) + '...'
+    }
+    if ($snippet) {
+      Fail "$Command $($Arguments -join ' ') failed rc=$code`n$snippet"
+    }
+    Fail "$Command $($Arguments -join ' ') failed rc=$code"
+  }
+  return $true
 }
 
 function Invoke-JqInput([string[]]$Arguments, [string]$InputJson, [switch]$AllowFailure) {
@@ -233,6 +281,10 @@ function Get-ManifestCandidates([string]$Template) {
   }
 }
 
+function Get-ManifestPathSlug([string]$ManifestPath) {
+  return Split-Path (Split-Path $ManifestPath -Parent) -Leaf
+}
+
 function Get-CodexConfigCandidates {
   if ($env:CODEX_CONFIG) { $env:CODEX_CONFIG }
   if ($HOME) { Join-Path $HOME '.codex\config.toml' }
@@ -289,6 +341,7 @@ Set-Location -LiteralPath $RepoRoot
 if (-not (Test-NativeSuccess 'git' @('-C', $AppRepoRoot, 'rev-parse', '--is-inside-work-tree'))) {
   Fail "not a git repository or not trusted by git: $AppRepoRoot"
 }
+$AppRepoGitCommonDir = Resolve-GitCommonDir $AppRepoRoot
 
 # --- config load ------------------------------------------------------------
 
@@ -360,12 +413,13 @@ if (-not $Manifest) {
 }
 
 $FeatureSlug = Yq-File '.feature.slug' $Manifest
-$runsForBase = Expand-PathTemplate $PathRunsTpl $FeatureSlug 'X'
+$FeaturePathSlug = Get-ManifestPathSlug $Manifest
+$runsForBase = Expand-PathTemplate $PathRunsTpl $FeaturePathSlug 'X'
 $RunsBase = Split-Path $runsForBase -Parent
 $script:RunnerLog = Join-Root (Join-Path $RunsBase 'runner.log')
 New-Item -ItemType Directory -Force -Path (Split-Path $script:RunnerLog -Parent) | Out-Null
 
-Log "feature=$FeatureSlug integration=$IntegrationBranch appRepo=$AppRepoRoot manifest=$Manifest"
+Log "feature=$FeatureSlug runFolder=$FeaturePathSlug integration=$IntegrationBranch appRepo=$AppRepoRoot manifest=$Manifest"
 
 # --- lockfile ---------------------------------------------------------------
 
@@ -448,6 +502,15 @@ function Get-ManifestStoryIds {
 function Story-HasOverride([string]$StoryId, [string]$Token) {
   $hit = Yq-File ('.stories[] | select(.id == "' + $StoryId + '") | .override[]? | select(. == "' + $Token + '")') $Manifest -AllowFailure
   return -not [string]::IsNullOrWhiteSpace($hit)
+}
+
+function Story-HasTouch([string]$StoryId, [string]$Token) {
+  $hit = Yq-File ('.stories[] | select(.id == "' + $StoryId + '") | .touches[]? | select(. == "' + $Token + '")') $Manifest -AllowFailure
+  return -not [string]::IsNullOrWhiteSpace($hit)
+}
+
+function Story-IsVerificationOnly([string]$StoryId) {
+  return (Story-HasTouch $StoryId 'verification')
 }
 
 function Manifest-StateOf([string]$StoryId) {
@@ -659,11 +722,11 @@ function Get-StoryBranchName([string]$StoryId) {
 }
 
 function Get-WorktreePath([string]$StoryId) {
-  Expand-PathTemplate $PathWorktreesTpl $FeatureSlug $StoryId
+  Expand-PathTemplate $PathWorktreesTpl $FeaturePathSlug $StoryId
 }
 
 function Get-StoryRunsDir([string]$StoryId) {
-  Expand-PathTemplate $PathRunsTpl $FeatureSlug $StoryId
+  Expand-PathTemplate $PathRunsTpl $FeaturePathSlug $StoryId
 }
 
 function Test-WorktreeExists([string]$StoryId) {
@@ -735,11 +798,68 @@ function Propagate-WorkspaceAssets([string]$StoryId) {
 
 # --- gate checks ------------------------------------------------------------
 
-function Gate-CommitsExist([string]$Worktree, [string]$StoryId) {
+function Get-HarnessExcludedPathspec {
+  return @(
+    '.',
+    ':(exclude).codex',
+    ':(exclude)AGENTS.md',
+    ':(exclude).worktreeinclude',
+    ':(exclude)CONTEXT.md',
+    ':(exclude)docs',
+    ':(exclude)scripts'
+  )
+}
+
+function Get-CommittablePathspec {
+  return @(
+    '.',
+    ':(exclude).codex',
+    ':(exclude)AGENTS.md',
+    ':(exclude).worktreeinclude',
+    ':(exclude)CONTEXT.md',
+    ':(exclude)docs',
+    ':(exclude)scripts',
+    ':(exclude).pnpm-store',
+    ':(exclude).restore-deals.tar',
+    ':(exclude)node_modules'
+  )
+}
+
+function Get-StatusLines([string]$Worktree, [string[]]$Pathspec) {
+  $args = @(
+    '-C', (Join-Root $Worktree),
+    'status', '--porcelain', '--untracked-files=all', '--'
+  ) + $Pathspec
+  return (To-Lines (Invoke-Text 'git' $args -AllowFailure))
+}
+
+function Get-NonHarnessChangeLines([string]$Worktree) {
+  Get-StatusLines $Worktree @(Get-HarnessExcludedPathspec)
+}
+
+function Get-CommittableChangeLines([string]$Worktree) {
+  Get-StatusLines $Worktree @(Get-CommittablePathspec)
+}
+
+function Refresh-WorktreeIndex([string]$Worktree) {
+  Invoke-NativeQuiet 'git' @(
+    '-C', (Join-Root $Worktree),
+    'reset', '--mixed', '-q', 'HEAD'
+  ) -AllowFailure | Out-Null
+}
+
+function Get-StoryCommitCount([string]$Worktree, [string]$StoryId) {
   $branch = Get-StoryBranchName $StoryId
   $count = Invoke-Text 'git' @('-C', (Join-Root $Worktree), 'rev-list', '--count', "$IntegrationBranch..$branch") -AllowFailure
-  if (-not $count) { $count = '0' }
-  if ([int]$count -lt 1) {
+  if (-not $count) {
+    return 0
+  }
+  return [int]$count
+}
+
+function Gate-CommitsExist([string]$Worktree, [string]$StoryId) {
+  $branch = Get-StoryBranchName $StoryId
+  if ((Get-StoryCommitCount $Worktree $StoryId) -lt 1) {
     return "no new commits on $branch since fork from $IntegrationBranch"
   }
   return ''
@@ -809,12 +929,8 @@ function Gate-RunLogPresent([string]$Worktree, [string]$StoryId, [int]$RunNumber
 }
 
 function Gate-WorktreeClean([string]$Worktree) {
-  $dirty = To-Lines (Invoke-Text 'git' @(
-    '-C', (Join-Root $Worktree),
-    'status', '--porcelain', '--',
-    '.', ':(exclude).codex', ':(exclude)AGENTS.md', ':(exclude).worktreeinclude',
-    ':(exclude)CONTEXT.md', ':(exclude)docs', ':(exclude)scripts'
-  ) -AllowFailure) | Select-Object -First 1
+  Refresh-WorktreeIndex $Worktree
+  $dirty = @(Get-NonHarnessChangeLines $Worktree) | Select-Object -First 1
   if ($dirty) {
     return "worktree has uncommitted changes: '$dirty'"
   }
@@ -836,6 +952,71 @@ function Run-Gates([string]$Worktree, [string]$StoryId, [int]$RunNumber, [int]$C
     if ($reason) {
       return $reason
     }
+  }
+  return ''
+}
+
+function New-CommitOutcome([string]$Status, [string]$Reason) {
+  return [pscustomobject]@{
+    Status = $Status
+    Reason = $Reason
+  }
+}
+
+function Commit-StoryChanges([string]$Worktree, [string]$StoryId) {
+  Refresh-WorktreeIndex $Worktree
+
+  $committable = @(Get-CommittableChangeLines $Worktree)
+  if ($committable.Count -eq 0) {
+    $nonHarness = @(Get-NonHarnessChangeLines $Worktree)
+    if ($nonHarness.Count -gt 0) {
+      return (New-CommitOutcome 'failed' "worktree has uncommitted non-harness changes that the runner will not auto-commit: '$($nonHarness[0])'")
+    }
+    if ((Get-StoryCommitCount $Worktree $StoryId) -gt 0) {
+      return (New-CommitOutcome 'existing-commit' '')
+    }
+    if (Story-IsVerificationOnly $StoryId) {
+      return (New-CommitOutcome 'no-code-verification' '')
+    }
+    return (New-CommitOutcome 'failed' 'no application changes to commit')
+  }
+
+  $addArgs = @(
+    '-C', (Join-Root $Worktree),
+    'add', '--all', '--'
+  ) + @(Get-CommittablePathspec)
+  if (-not (Invoke-NativeQuiet 'git' $addArgs -AllowFailure)) {
+    return (New-CommitOutcome 'failed' 'git add failed while staging application changes')
+  }
+
+  if (Test-NativeSuccess 'git' @('-C', (Join-Root $Worktree), 'diff', '--cached', '--quiet')) {
+    return (New-CommitOutcome 'failed' 'git add completed but produced no staged application changes')
+  }
+
+  $title = Manifest-StoryField $StoryId 'title'
+  if (-not $title -or $title -eq 'null') {
+    $title = 'implement story'
+  }
+  $message = "$StoryId - $title"
+  if (-not (Invoke-NativeQuiet 'git' @('-C', (Join-Root $Worktree), 'commit', '-m', $message) -AllowFailure)) {
+    return (New-CommitOutcome 'failed' 'git commit failed after staging application changes')
+  }
+
+  Log "parent commit created for ${StoryId}: $message"
+  return (New-CommitOutcome 'committed' '')
+}
+
+function Run-NoCodeVerificationGates([string]$Worktree, [string]$StoryId, [int]$RunNumber, [int]$CodexExitCode) {
+  if ($CodexExitCode -ne 0) {
+    return "codex exited rc=$CodexExitCode (likely wall-clock kill or uncaught error)"
+  }
+  $reason = Gate-RunLogPresent $Worktree $StoryId $RunNumber
+  if ($reason) {
+    return $reason
+  }
+  $dirty = @(Get-NonHarnessChangeLines $Worktree) | Select-Object -First 1
+  if ($dirty) {
+    return "verification-only story left application changes: '$dirty'"
   }
   return ''
 }
@@ -872,6 +1053,12 @@ Read and follow the local implementation skill before making changes:
 You are the Phase 2 implementation agent for story $StoryId under feature
 $FeatureSlug. Run #$RunNumber in this worktree.
 
+This worktree is the application repository root. Harness docs and story briefs
+may mention paths under `code/` because the main harness checkout keeps the
+application repo nested there. Inside this worktree, strip that leading `code/`
+prefix. For example, use `Camtrade.Portal/...`, not `code/Camtrade.Portal/...`;
+do not `cd code`.
+
 Story branch: $branch
 Integration branch: $IntegrationBranch
 Diff cap override (large-diff-ok): $override
@@ -882,14 +1069,15 @@ Your spec is on disk at:
 
   $runsDir/implementation.md
 
-Do not push, do not open or update any PR, do not post any comment. The
-harness owns every remote-side write. Your job is: ground the touch surface,
-vertical-slice TDD per logical unit, commit locally, write the next run log at
+Do not stage, commit, push, open or update any PR, or post any comment. The
+harness owns git staging, commits, and every remote-side write after you exit.
+Your job is: ground the touch surface, vertical-slice TDD per logical unit,
+leave application changes unstaged/uncommitted, write the next run log at
 $runsDir/run-$RunNumber.md, then exit.
 
-Do not commit AGENTS.md, .worktreeinclude, CONTEXT.md, docs/, scripts/, or
-anything under .codex/. Those files are copied into this worktree as harness
-context only.
+Do not edit AGENTS.md, .worktreeinclude, CONTEXT.md, docs/ except the named
+run log, scripts/, or anything under .codex/. Those files are copied into this
+worktree as harness context only.
 "@
 
   if ($Feedback) {
@@ -943,10 +1131,19 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
-$CodexArgs = @(Get-Content -Raw -LiteralPath $CodexArgsFile | ConvertFrom-Json)
+$CodexArgs = @(Get-Content -LiteralPath $CodexArgsFile)
 Set-Location -LiteralPath $WorkDir
-Get-Content -Raw -LiteralPath $PromptFile | & codex @CodexArgs | Tee-Object -FilePath $StreamLog
-exit $LASTEXITCODE
+Set-Content -LiteralPath $StreamLog -Value $null -Encoding UTF8
+Get-Content -Raw -LiteralPath $PromptFile | & codex @CodexArgs 2>&1 | ForEach-Object {
+  $line = $_.ToString()
+  [Console]::Out.WriteLine($line)
+  Add-Content -LiteralPath $StreamLog -Value $line -Encoding UTF8
+}
+$code = $LASTEXITCODE
+if ($null -eq $code) {
+  exit 1
+}
+exit $code
 '@
   Set-Content -LiteralPath $path -Value $content -Encoding UTF8
   return $path
@@ -966,15 +1163,18 @@ function Spawn-Codex([string]$StoryId, [string]$PromptFile, [int]$RunNumber) {
     Add-Content -LiteralPath $script:RunnerLog -Value $promptBlock -Encoding UTF8
   }
 
-  $codexArgs = @('exec', '--sandbox', $SandboxMode, '--ask-for-approval', $ApprovalPolicy, '-C', $wtFull, '--json')
+  $wtGitDir = Resolve-GitDir $wtFull
+  $codexArgs = @('--sandbox', $SandboxMode, '--ask-for-approval', $ApprovalPolicy, '-C', $wtFull, '--add-dir', $AppRepoGitCommonDir)
+  if ($wtGitDir -ne $AppRepoGitCommonDir) {
+    $codexArgs += @('--add-dir', $wtGitDir)
+  }
   if ($Model) {
     $codexArgs += @('--model', $Model)
   }
-  $codexArgs += '-'
-
+  $codexArgs += @('exec', '--json', '-')
   $childScript = New-CodexChildScript
-  $codexArgsFile = Join-Path ([System.IO.Path]::GetTempPath()) ("codex-args-{0}.json" -f ([guid]::NewGuid().ToString('N')))
-  Set-Content -LiteralPath $codexArgsFile -Value ($codexArgs | ConvertTo-Json) -Encoding UTF8
+  $codexArgsFile = Join-Path ([System.IO.Path]::GetTempPath()) ("codex-args-{0}.txt" -f ([guid]::NewGuid().ToString('N')))
+  Set-Content -LiteralPath $codexArgsFile -Value $codexArgs -Encoding UTF8
 
   $psHost = Get-PowerShellHostPath
   $psArgs = @(
@@ -996,7 +1196,12 @@ function Spawn-Codex([string]$StoryId, [string]$PromptFile, [int]$RunNumber) {
       & taskkill.exe /PID $proc.Id /T /F *> $null
       $rc = 124
     } else {
-      $rc = $proc.ExitCode
+      $proc.Refresh()
+      if ($null -eq $proc.ExitCode) {
+        $rc = 1
+      } else {
+        $rc = [int]$proc.ExitCode
+      }
     }
   } finally {
     Remove-Item -LiteralPath $childScript -Force -ErrorAction SilentlyContinue
@@ -1167,8 +1372,8 @@ function Ensure-IntegrationPushed {
 
 function Sync-Remote {
   Log 'sync: git fetch + reconcile pr-open stories'
-  & git -C $AppRepoRoot fetch origin $IntegrationBranch 2>$null | Out-Null
-  & git -C $AppRepoRoot pull --ff-only origin $IntegrationBranch 2>$null | Out-Null
+  Invoke-NativeQuiet 'git' @('-C', $AppRepoRoot, 'fetch', 'origin', $IntegrationBranch) | Out-Null
+  Invoke-NativeQuiet 'git' @('-C', $AppRepoRoot, 'pull', '--ff-only', 'origin', $IntegrationBranch) | Out-Null
 
   foreach ($sid in Get-ManifestStoryIds) {
     $state = Manifest-StateOf $sid
@@ -1300,6 +1505,42 @@ function Run-OneIteration {
   }
 
   $wt = Get-WorktreePath $sid
+  if ($rc -ne 0) {
+    $reason = Run-Gates $wt $sid $runNumber $rc
+    Log "gate failure for ${sid}: $reason"
+    if ($priorState -eq 'pr-open') {
+      Post-DiagnosticsComment $sid $runNumber $reason
+    }
+    Manifest-SetState $sid 'needs-info'
+    return $true
+  }
+
+  $commitOutcome = Commit-StoryChanges $wt $sid
+  if ($commitOutcome.Status -eq 'failed') {
+    Log "gate failure for ${sid}: $($commitOutcome.Reason)"
+    if ($priorState -eq 'pr-open') {
+      Post-DiagnosticsComment $sid $runNumber $commitOutcome.Reason
+    }
+    Manifest-SetState $sid 'needs-info'
+    return $true
+  }
+
+  if ($commitOutcome.Status -eq 'no-code-verification') {
+    $reason = Run-NoCodeVerificationGates $wt $sid $runNumber $rc
+    if ($reason) {
+      Log "gate failure for ${sid}: $reason"
+      if ($priorState -eq 'pr-open') {
+        Post-DiagnosticsComment $sid $runNumber $reason
+      }
+      Manifest-SetState $sid 'needs-info'
+      return $true
+    }
+
+    Manifest-SetState $sid 'done'
+    Log "==> $sid done (verification-only no-code run $runNumber; no PR opened)"
+    return $true
+  }
+
   $reason = Run-Gates $wt $sid $runNumber $rc
   if ($reason) {
     Log "gate failure for ${sid}: $reason"

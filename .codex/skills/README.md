@@ -6,7 +6,7 @@ The canonical reference for:
 
 Skills are self-contained leaf functions; this doc is the only place that explains *when* to activate them.
 
-The manifest at `docs/ai-runs/{feature-slug}/manifest.yaml` is the **single source of truth** for story state. The runner reads it; phase skills read and write it. The directory is keyed by feature slug, while `feature.branch` inside the manifest must exactly match the current application integration branch.
+The manifest at `docs/ai-runs/{run-folder}/manifest.yaml` is the **single source of truth** for story state. The runner reads it; phase skills read and write it. The runner finds the manifest by matching `feature.branch` to the current application integration branch, then uses the manifest's containing folder for story artifacts.
 
 ## TL;DR
 
@@ -33,7 +33,7 @@ The feature integration branch ships into a protected branch (e.g., `stage`) as 
 - **Driver:** human, in chat.
 - **Inputs:** an idea, conversation, or existing feature doc.
 - **Skills:** `grill-with-docs` ↔ `to-feature` (loop until sealed) → `to-feature-manifest` → `to-stories`.
-- **Artefacts:** sealed feature doc at `docs/features/{slug}.md`; manifest at `docs/ai-runs/{slug}/manifest.yaml`; per-story `implementation.md`.
+- **Artefacts:** sealed feature doc at `docs/features/{slug}.md`; manifest at `docs/ai-runs/{run-folder}/manifest.yaml`; per-story `implementation.md`.
 - **Exit when:** every story is `ready-for-agent`, `needs-info`, or `ready-for-human`.
 
 ### `grill-with-docs`
@@ -51,10 +51,11 @@ Compacts the chat into a sealed feature doc at `docs/features/{slug}.md`. Re-run
 - **Move on when aligned** — once the team agrees, run `to-feature-manifest`.
 
 ### `to-feature-manifest`
-Reads the sealed feature doc and drafts vertical-slice stories into `docs/ai-runs/{slug}/manifest.yaml`.
+Reads the sealed feature doc and drafts vertical-slice stories into `docs/ai-runs/{run-folder}/manifest.yaml`.
 
 - Iterates with the human in chat; chat is the iteration surface, the manifest is the sealed output.
 - Confirms the feature integration branch before writing; default recommendation is `git -C code branch --show-current`.
+- Uses the manifest's containing folder as the run folder for `implementation.md`, run logs, stream logs, and QA artifacts.
 - Per-story fields: `id`, `title`, `description`, `covers`, `touches`, `validation`, `blocked_by`, `state`.
 - Sticky IDs (`NNN-{short-slug}`); re-runs preserve in-flight states. New slices get `drafted`; removed slices get `wontfix` (never deleted).
 - Confirmation mindset — does **not** re-open product or architectural decisions; hand back to `to-feature` if a design call is unsettled.
@@ -246,8 +247,9 @@ Mechanical detail for debugging the runner. Not needed for day-to-day shipping.
 4. **Claim.** Flip `state` to `agent-dev`.
 5. **Worktree.** Create `.worktrees/{story-id}/` off the integration branch if it doesn't exist; reuse on re-runs. Story branch: `{branches.prefix}{story-id}`.
 6. **Context propagation.** Copy the paths listed in `.worktreeinclude` from the main tree into the worktree (gitignored paths don't propagate through `git worktree add`).
-7. **Compile prompt + spawn.** Thin prompt: story id, branch names, run number, diff caps, `large-diff-ok` flag, optional inlined PR-feedback bundle on re-runs. It tells Codex to read `.codex/skills/implement-story/SKILL.md`, then spawns `codex exec --sandbox <runner.sandboxMode> --ask-for-approval <runner.approvalPolicy> -C <worktree> --json -`, bounded by `caps.perStoryWallClockSec`.
-8. **Post-agent gates.** Before any remote action, verify:
+7. **Compile prompt + spawn.** Thin prompt: story id, branch names, run number, diff caps, `large-diff-ok` flag, optional inlined PR-feedback bundle on re-runs, and a path-normalization reminder that `code/...` paths from harness docs become root-relative paths inside story worktrees. It tells Codex to read `.codex/skills/implement-story/SKILL.md`, leave application changes unstaged/uncommitted, write `run-<n>.md`, and exit. The runner spawns `codex --sandbox <runner.sandboxMode> --ask-for-approval <runner.approvalPolicy> -C <worktree> --add-dir <app-repo-git-common-dir> --add-dir <worktree-git-dir> exec --json -` with the prompt piped on stdin, bounded by `caps.perStoryWallClockSec`.
+8. **Parent commit or no-code completion.** If Codex exits 0, the runner inspects non-harness application changes. If changes exist, the parent runner stages and commits them with `<story-id> - <story title>`. If no application changes exist and the story has the `verification` touch, the runner marks it `done` without pushing or opening a PR. Non-verification stories with no application changes go to `needs-info`.
+9. **Post-agent gates.** Before any remote action for committed stories, verify:
    - At least one new commit on the story branch since fork.
    - Each commit message references the story ID.
    - Diff within `caps.diffFiles` / `caps.diffLines` (skip if `large-diff-ok`).
@@ -255,10 +257,10 @@ Mechanical detail for debugging the runner. Not needed for day-to-day shipping.
    - Worktree clean.
    - `codex` exited 0.
 
-   One gate failure → flip to `needs-info`, log the named gate, leave the worktree intact, continue.
-9. **Push + PR.** `git push -u origin {story-branch}`. On run 1, create a Bitbucket PR from the story branch to the integration branch with the structured body; capture the PR id into the manifest entry's `pr:` field. On subsequent runs, the push updates the existing PR.
-10. **Post run-summary.** Read `run-<n>.md`, prepend `## [Type: run-summary | by: scripts/windows/run-codex-loop.ps1 | run <n>]`, post it as a Bitbucket PR comment.
-11. **Flip state.** `state → pr-open`. Continue.
+   One gate failure -> flip to `needs-info`, log the named gate, leave the worktree intact, continue.
+10. **Push + PR.** For committed stories only, `git push -u origin {story-branch}`. On run 1, create a Bitbucket PR from the story branch to the integration branch with the structured body; capture the PR id into the manifest entry's `pr:` field. On subsequent runs, the push updates the existing PR.
+11. **Post run-summary.** Read `run-<n>.md`, prepend `## [Type: run-summary | by: scripts/windows/run-codex-loop.ps1 | run <n>]`, post it as a Bitbucket PR comment.
+12. **Flip state.** Committed stories go `state -> pr-open`; no-code verification stories go `state -> done`. Continue.
 
 #### Re-run semantics (PR-comment feedback channel)
 
@@ -285,8 +287,8 @@ Inlined verbatim. The agent re-reads `implementation.md` plus prior `run-<n>.md`
 Authoring (planning, writing tests, writing code) stays with the parent agent.
 
 #### Observability — three log surfaces
-- **Live stderr.** `codex`'s stream-json events piped through a `jq` formatter: one line per tool call, per turn, plus init / done events. What the human watches in real time.
-- **Per-run stream-json** at `docs/ai-runs/{slug}/{story-id}/run-<n>.stream.jsonl` — full unparsed agent events. Post-mortem record for F1s.
+- **Live output.** `codex exec --json` output is streamed through the runner console and written as UTF-8 to the per-run stream log while the agent runs.
+- **Per-run stream log** at `docs/ai-runs/{slug}/{story-id}/run-<n>.stream.jsonl` — full unparsed agent output. Post-mortem record for F1s.
 - **Per-feature orchestration log** at `docs/ai-runs/{slug}/runner.log` — append-mode, timestamped. Script-side events (claim flips, gate checks, push, PR-create, merge detection, exit reasons). The "what did the harness do overnight?" narrative.
 
 ---
@@ -295,11 +297,13 @@ Authoring (planning, writing tests, writing code) stays with the parent agent.
 
 Alphabetical. Phase markers indicate AISDLC participation.
 
+- [get-pr-from-bitbucket](get-pr-from-bitbucket/SKILL.md) — Resolve a Bitbucket PR reference to a numeric id and fetch its metadata, diff, changed files, and comment threads (read-only leaf shared by `review-pr` and `resolve-pr-comments`).
 - [grill-with-docs](grill-with-docs/SKILL.md) — `[phase 1]` Grill that challenges a plan against the domain model and updates `CONTEXT.md` / ADRs inline.
 - [init-greenfield](init-greenfield/SKILL.md) — `[setup]` One-shot scaffold specialization: interview the lead, fill `AGENTS.md` / `README.md`, activate dev-command skills, wire workflow config, check the dev env.
-- [implement-story](implement-story/SKILL.md) — `[phase 2]` Implement one story end-to-end from its `implementation.md` (runs inside the runner-spawned `codex`). Ground, TDD, commit locally, write run log.
+- [implement-story](implement-story/SKILL.md) — `[phase 2]` Implement one story end-to-end from its `implementation.md` (runs inside the runner-spawned `codex`). Ground, TDD, leave app changes for the runner commit, write run log.
 - [new-work-item](new-work-item/SKILL.md) — `[phase 2]` Create an ad-hoc story or bug.
 - [preview](preview/SKILL.md) — `[phase 2]` Boot env, run AFK Playwright in parallel, narrate HITL flows in chat, append `testing.md`.
+- [resolve-pr-comments](resolve-pr-comments/SKILL.md) — Address the human review comments on a Bitbucket PR: clarify ambiguous ones, change code locally, stop at a verified diff. Never commits or posts to Bitbucket without explicit approval.
 - [review-pr](review-pr/SKILL.md) — Read pull requests and post comments.
 - [tdd](tdd/SKILL.md) — Test-driven development.
 - [to-feature](to-feature/SKILL.md) — `[phase 1]` Compact a chat into a sealed feature doc.

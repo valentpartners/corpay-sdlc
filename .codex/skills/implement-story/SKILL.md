@@ -1,12 +1,12 @@
 ---
 name: implement-story
-description: Implement one story end-to-end from its on-disk brief. Ground, vertical-slice TDD, commit locally, write the run log.
+description: Implement one story end-to-end from its on-disk brief. Ground, vertical-slice TDD, leave app changes for the harness to commit, write the run log.
 disable-model-invocation: true
 ---
 
 ## Main Purpose
 
-Implement the plan described in the local `implementation.md`. Stay inside the worktree. All edits, builds, and git operations stay local.
+Implement the plan described in the local `implementation.md`. Stay inside the worktree. All edits, builds, and validation stay local. Do not stage, commit, push, update refs, open PRs, or post comments; the runner owns Git staging, commits, pushes, PRs, and remote comments after you exit.
 
 ## Process
 
@@ -16,11 +16,11 @@ Based on `implementation.md` at the path the spawn prompt names, spawn `Agent(Ex
 
 If a referenced path doesn't exist, stop and report — the brief has drifted. Recovery is `Skill(to-stories)` from the main tree.
 
-### 2. Pick commit boundaries
+### 2. Pick change boundaries
 
-Decompose the story into logical units. Implement one unit per commit, in order.
+Decompose the story into logical units. Implement and validate one unit at a time, in order. The runner will package the final application diff into the story commit after you exit.
 
-### 3. Per commit-worthy logical unit
+### 3. Per logical unit
 
 #### 3a. Red → green per unit
 
@@ -34,13 +34,9 @@ Stop cleanly when you hit the TDD attempt cap from the spawn prompt — leave th
 
 `Skill(tdd)` has the deeper discipline (anti-patterns, testability heuristics, refactor candidates) — load only if the cadence above isn't enough.
 
-#### 3b. Commit
+#### 3b. Leave changes for the harness
 
-One commit per logical unit. Message format:
-
-```
-<story-id> - <functional unit description>
-```
+Do not run `git add`, `git commit`, `git commit-tree`, `git update-ref`, `git push`, or PR/comment commands. Leave application changes unstaged and uncommitted. The harness will commit app-code changes with the story ID in the message, or mark verification-only no-code stories done without a PR.
 
 ### 4. Write the run log
 

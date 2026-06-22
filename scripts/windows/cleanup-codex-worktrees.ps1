@@ -168,6 +168,10 @@ function Get-ManifestCandidates([string]$Template) {
   }
 }
 
+function Get-ManifestPathSlug([string]$ManifestPath) {
+  return Split-Path (Split-Path $ManifestPath -Parent) -Leaf
+}
+
 function Normalize-FullPath([string]$Path) {
   return ([System.IO.Path]::GetFullPath($Path)).TrimEnd([char[]]@('/', '\')).ToLowerInvariant()
 }
@@ -226,10 +230,12 @@ if ($FeatureSlug) {
   if (-not $Manifest) {
     Fail "no manifest matches current branch '$CurrentBranch'; pass --feature SLUG"
   }
-  $FeatureSlug = Yq-File '.feature.slug' $Manifest
 }
 
-Log "feature=$FeatureSlug manifest=$Manifest dry-run=$DryRun"
+$FeaturePathSlug = Get-ManifestPathSlug $Manifest
+$FeatureSlug = Yq-File '.feature.slug' $Manifest
+
+Log "feature=$FeatureSlug runFolder=$FeaturePathSlug manifest=$Manifest dry-run=$DryRun"
 
 # --- registered-worktree set ------------------------------------------------
 
@@ -261,7 +267,7 @@ foreach ($row in To-Lines $storyRows) {
   if ($state -eq 'done' -or $state -eq 'wontfix') {
     continue
   }
-  $wt = Expand-PathTemplate $PathWorktreesTpl $FeatureSlug $sid
+  $wt = Expand-PathTemplate $PathWorktreesTpl $FeaturePathSlug $sid
   if (Test-WorktreeRegistered $wt) {
     $BailList.Add("$sid (state=$state)") | Out-Null
   }
@@ -292,7 +298,7 @@ foreach ($row in To-Lines $storyRows) {
   $sid = $parts[0]
   $state = $parts[1]
   $branch = "$BranchPrefix$sid"
-  $wt = Expand-PathTemplate $PathWorktreesTpl $FeatureSlug $sid
+  $wt = Expand-PathTemplate $PathWorktreesTpl $FeaturePathSlug $sid
   $wtFull = Join-Root $wt
 
   if ($state -ne 'done') {
@@ -334,7 +340,7 @@ foreach ($row in To-Lines $storyRows) {
   }
 
   if ($wtLive) {
-    $runsRel = Expand-PathTemplate $PathRunsTpl $FeatureSlug $sid
+    $runsRel = Expand-PathTemplate $PathRunsTpl $FeaturePathSlug $sid
     $src = Join-Root (Join-Path $wt $runsRel)
     $dst = Join-Root $runsRel
     if (Test-Path -LiteralPath $src -PathType Container) {
@@ -397,5 +403,5 @@ if ($SkippedDetail.Count -gt 0) {
 $featureBranch = Yq-File '.feature.branch' $Manifest
 Log "feature integration branch ($featureBranch) left alone; delete it manually after merging into protected."
 if ($cleaned -gt 0 -and -not $DryRun) {
-  Log "next: invoke to-qa-handoff to generate docs/ai-runs/$FeatureSlug/qa-handoff.md"
+  Log "next: invoke to-qa-handoff to generate docs/ai-runs/$FeaturePathSlug/qa-handoff.md"
 }

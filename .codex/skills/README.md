@@ -12,6 +12,7 @@ The manifest at `docs/ai-runs/{run-folder}/manifest.yaml` is the **single source
 
 | Phase | Driver | Skills | Artefact at exit |
 |-------|--------|--------|------------------|
+| Simple Jira ticket | Human + Codex in chat | `implement-small-jira-ticket` -> `to-simple-story` -> `implement-simple-story` | Ticket branch from `master`, simple `implementation.md`, local diff and run log for human testing. |
 | Design | Human, in chat | `grill-with-docs` ↔ `to-feature` (loop) → `to-feature-manifest` → `to-stories` | Sealed feature doc; manifest with vertical-slice stories; per-story `implementation.md` on disk. |
 | Build & Validate | Runner (autonomous) + human (in chat, per story) | Per story: runner spawns `implement-story` → human runs `preview` → merges PR. After all `done`: `cleanup-codex-worktrees.ps1` → `to-qa-handoff` | Every story merged into integration; per-story `testing.md` on disk; QA handoff doc sealed; integration PR ready to open. |
 
@@ -41,6 +42,21 @@ Adversarial dialogue — Codex pushes back to surface assumptions, edge cases, a
 - Updates `CONTEXT.md` inline as domain terms resolve.
 - Offers ADRs when a decision meets the bar.
 - Cross-references the codebase to spot intent/implementation drift.
+
+### `grill-me-with-jira`
+Use when Phase 1 starts from a Jira ticket. Fetches one ticket via `jira-ticket-context`, frames the product/design gaps, then continues with `grill-with-docs`.
+
+### `jira-ticket-context`
+Read-only Jira leaf. Given one issue key or URL, fetches ticket details through Atlassian Jira MCP and normalizes summary, description, acceptance criteria, links, comments, and gaps into a context block.
+
+### `implement-small-jira-ticket`
+Fast lane for a user-judged small Jira ticket. Fetches the ticket, creates `{ticket-id}-{ticket-name}` from `master` in the application repo, writes a simple `implementation.md`, implements locally, and leaves cleanup steps for after human testing and merge.
+
+### `to-simple-story`
+Lightweight cousin of `to-stories`. Investigates one Jira ticket against the codebase, asks only blockers, then writes `docs/ai-runs/simple-jira/{ticket-id}/implementation.md`.
+
+### `implement-simple-story`
+Lightweight cousin of `implement-story`. Implements one simple `implementation.md` on the prepared branch, skips build/lint/tests unless explicitly asked, and writes a run log for human testing.
 
 ### `to-feature`
 Compacts the chat into a sealed feature doc at `docs/features/{slug}.md`. Re-run to merge new findings — the doc plateaus, it doesn't grow (synthesise-and-replace).
@@ -298,9 +314,13 @@ Authoring (planning, writing tests, writing code) stays with the parent agent.
 Alphabetical. Phase markers indicate AISDLC participation.
 
 - [get-pr-from-bitbucket](get-pr-from-bitbucket/SKILL.md) — Resolve a Bitbucket PR reference to a numeric id and fetch its metadata, diff, changed files, and comment threads (read-only leaf shared by `review-pr` and `resolve-pr-comments`).
+- [grill-me-with-jira](grill-me-with-jira/SKILL.md) — `[phase 1]` Start a docs-backed grill session from a Jira ticket.
 - [grill-with-docs](grill-with-docs/SKILL.md) — `[phase 1]` Grill that challenges a plan against the domain model and updates `CONTEXT.md` / ADRs inline.
 - [init-greenfield](init-greenfield/SKILL.md) — `[setup]` One-shot scaffold specialization: interview the lead, fill `AGENTS.md` / `README.md`, activate dev-command skills, wire workflow config, check the dev env.
+- [implement-simple-story](implement-simple-story/SKILL.md) — Implement one simple-story `implementation.md` locally and leave a run log for human testing.
+- [implement-small-jira-ticket](implement-small-jira-ticket/SKILL.md) — Run the small-ticket Jira fast lane from ticket fetch through local implementation and cleanup handoff.
 - [implement-story](implement-story/SKILL.md) — `[phase 2]` Implement one story end-to-end from its `implementation.md` (runs inside the runner-spawned `codex`). Ground, TDD, leave app changes for the runner commit, write run log.
+- [jira-ticket-context](jira-ticket-context/SKILL.md) — Fetch and normalize one Jira ticket through Atlassian Jira MCP as read-only starter context.
 - [new-work-item](new-work-item/SKILL.md) — `[phase 2]` Create an ad-hoc story or bug.
 - [preview](preview/SKILL.md) — `[phase 2]` Boot env, run AFK Playwright in parallel, narrate HITL flows in chat, append `testing.md`.
 - [resolve-pr-comments](resolve-pr-comments/SKILL.md) — Address the human review comments on a Bitbucket PR: clarify ambiguous ones, change code locally, stop at a verified diff. Never commits or posts to Bitbucket without explicit approval.
@@ -309,6 +329,7 @@ Alphabetical. Phase markers indicate AISDLC participation.
 - [to-feature](to-feature/SKILL.md) — `[phase 1]` Compact a chat into a sealed feature doc.
 - [to-feature-manifest](to-feature-manifest/SKILL.md) — `[phase 1]` Decompose a feature doc into a manifest of vertical-slice stories.
 - [to-qa-handoff](to-qa-handoff/SKILL.md) — `[phase 2]` Synthesize per-story `testing.md` + feature doc's `<product-behavior>` into a page-organized QA distribution doc at the feature level.
+- [to-simple-story](to-simple-story/SKILL.md) — Write a self-contained simple-ticket implementation brief from Jira context and codebase investigation.
 - [to-stories](to-stories/SKILL.md) — `[phase 1]` Per drafted story: explore, surface concerns, write `implementation.md`, promote.
 - [write-a-skill](write-a-skill/SKILL.md) — Author or revise a SKILL.md to match this scaffold's conventions.
 - [zoom-out](zoom-out/SKILL.md) — Give broader context on an unfamiliar area of code.

@@ -16,6 +16,11 @@ Codex-ready AISDLC assets for Deals development at Corpay.
 3. Run `powershell.exe -ExecutionPolicy Bypass -File .\scripts\windows\setup-dev.ps1` to verify the AISDLC harness tools, Bitbucket auth, and global monorepo toolchain.
 4. Use the active command skills (`build`, `test`, `lint`, `run`) to discover and run the correct commands from the relevant Deals project paths under `code/`.
 
+## Workflows
+
+- **Full AISDLC flow:** use this for feature work that needs product/design grilling, vertical story decomposition, autonomous story implementation, preview, cleanup, and QA handoff. Start with `grill-with-docs` or `grill-me-with-jira`, then move through `to-feature`, `to-feature-manifest`, `to-stories`, the runner, `preview`, cleanup, and `to-qa-handoff`.
+- **Small Jira ticket fast lane:** use this for simple Jira tickets where a full feature manifest would be too much ceremony. Start with `implement-small-jira-ticket` and provide the ticket ID; it fetches Jira context, creates a branch from `master` in `code/`, writes `docs/ai-runs/simple-jira/{ISSUE-KEY}/implementation.md`, implements locally, and leaves a run log plus cleanup handoff for human testing.
+
 ## Development
 
 - `powershell.exe -ExecutionPolicy Bypass -File .\scripts\windows\setup-dev.ps1` - verifies baseline AISDLC tooling, Bitbucket REST access, and global `codex`, `dotnet`, `node`, and `npm` availability.

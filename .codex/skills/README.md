@@ -49,6 +49,9 @@ Use when Phase 1 starts from a Jira ticket. Fetches one ticket via `jira-ticket-
 ### `jira-ticket-context`
 Read-only Jira leaf. Given one issue key or URL, fetches ticket details through Atlassian Jira MCP and normalizes summary, description, acceptance criteria, links, comments, and gaps into a context block.
 
+### `to-feature-with-jira`
+Use when a Jira ticket plus the current chat contains enough settled context to seal a feature doc. Fetches the ticket via `jira-ticket-context`, then runs `to-feature`; if the ticket is still ambiguous, hand back to `grill-me-with-jira`.
+
 ### `implement-small-jira-ticket`
 Fast lane for a user-judged small Jira ticket. Fetches the ticket, creates `{ticket-id}-{ticket-name}` from `master` in the application repo, writes a simple `implementation.md`, implements locally, and leaves cleanup steps for after human testing and merge.
 
@@ -327,6 +330,7 @@ Alphabetical. Phase markers indicate AISDLC participation.
 - [review-pr](review-pr/SKILL.md) — Read pull requests and post comments.
 - [tdd](tdd/SKILL.md) — Test-driven development.
 - [to-feature](to-feature/SKILL.md) — `[phase 1]` Compact a chat into a sealed feature doc.
+- [to-feature-with-jira](to-feature-with-jira/SKILL.md) — `[phase 1]` Fetch Jira context, then synthesize a sealed feature doc with `to-feature`.
 - [to-feature-manifest](to-feature-manifest/SKILL.md) — `[phase 1]` Decompose a feature doc into a manifest of vertical-slice stories.
 - [to-qa-handoff](to-qa-handoff/SKILL.md) — `[phase 2]` Synthesize per-story `testing.md` + feature doc's `<product-behavior>` into a page-organized QA distribution doc at the feature level.
 - [to-simple-story](to-simple-story/SKILL.md) — Write a self-contained simple-ticket implementation brief from Jira context and codebase investigation.

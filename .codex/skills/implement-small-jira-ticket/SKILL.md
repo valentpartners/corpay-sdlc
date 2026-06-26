@@ -1,6 +1,6 @@
 ---
 name: implement-small-jira-ticket
-description: Run the small-ticket Jira fast lane: branch from master, write a brief, implement locally, and hand off for human testing.
+description: "Run the small-ticket Jira fast lane: branch from master, write a brief, implement locally, and hand off for human testing."
 disable-model-invocation: true
 ---
 

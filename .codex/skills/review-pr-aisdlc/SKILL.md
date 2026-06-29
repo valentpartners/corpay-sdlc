@@ -1,5 +1,5 @@
 ---
-name: review-pr
+name: review-pr-aisdlc
 description: Read a Bitbucket PR — diff, commits, activities, and comments — and prepare or post review feedback.
 disable-model-invocation: true
 ---

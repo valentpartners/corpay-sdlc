@@ -19,6 +19,10 @@ Codex-ready AISDLC assets for Deals development at Corpay.
 ## Workflows
 
 - **Full AISDLC flow:** use this for feature work that needs product/design grilling, vertical story decomposition, autonomous story implementation, preview, cleanup, and QA handoff. Start with `grill-with-docs`, `grill-me-with-jira`, or `to-feature-with-jira` when the Jira context is already settled; then move through `to-feature-manifest`, `to-stories`, the runner, `preview`, cleanup, and `to-qa-handoff`.
+- After those steps, run the full agentic loop with 
+```
+powershell.exe -ExecutionPolicy Bypass -File .\scripts\windows\run-codex-loop.ps1 --watch 300
+```
 - **Small Jira ticket fast lane:** use this for simple Jira tickets where a full feature manifest would be too much ceremony. Start with `implement-small-jira-ticket` and provide the ticket ID; it fetches Jira context, creates a branch from `master` in `code/`, writes `docs/ai-runs/simple-jira/{ISSUE-KEY}/implementation.md`, implements locally, and leaves a run log plus cleanup handoff for human testing.
 
 ## Development

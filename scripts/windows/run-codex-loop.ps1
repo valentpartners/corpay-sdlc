@@ -928,6 +928,32 @@ function Gate-RunLogPresent([string]$Worktree, [string]$StoryId, [int]$RunNumber
   return ''
 }
 
+function Get-RunStreamLogPath([string]$Worktree, [string]$StoryId, [int]$RunNumber) {
+  Join-Root (Join-Path (Join-Path $Worktree (Get-StoryRunsDir $StoryId)) "run-$RunNumber.stream.jsonl")
+}
+
+function Test-CodexTurnCompleted([string]$Worktree, [string]$StoryId, [int]$RunNumber) {
+  $streamLog = Get-RunStreamLogPath $Worktree $StoryId $RunNumber
+  if (-not (Test-Path -LiteralPath $streamLog -PathType Leaf)) {
+    return $false
+  }
+  $hit = Select-String -LiteralPath $streamLog -Pattern '"type":"turn.completed"' -SimpleMatch -List -ErrorAction SilentlyContinue
+  return $null -ne $hit
+}
+
+function Test-RecoveredCodexExit([string]$Worktree, [string]$StoryId, [int]$RunNumber, [int]$CodexExitCode) {
+  if ($CodexExitCode -eq 0) {
+    return $true
+  }
+  if ($CodexExitCode -eq 124) {
+    return $false
+  }
+  if (Gate-RunLogPresent $Worktree $StoryId $RunNumber) {
+    return $false
+  }
+  return (Test-CodexTurnCompleted $Worktree $StoryId $RunNumber)
+}
+
 function Gate-WorktreeClean([string]$Worktree) {
   Refresh-WorktreeIndex $Worktree
   $dirty = @(Get-NonHarnessChangeLines $Worktree) | Select-Object -First 1
@@ -1505,14 +1531,20 @@ function Run-OneIteration {
   }
 
   $wt = Get-WorktreePath $sid
+  $effectiveRc = $rc
   if ($rc -ne 0) {
-    $reason = Run-Gates $wt $sid $runNumber $rc
-    Log "gate failure for ${sid}: $reason"
-    if ($priorState -eq 'pr-open') {
-      Post-DiagnosticsComment $sid $runNumber $reason
+    if (Test-RecoveredCodexExit $wt $sid $runNumber $rc) {
+      Log "codex exited rc=$rc but stream has turn.completed and run log exists; continuing to commit gates"
+      $effectiveRc = 0
+    } else {
+      $reason = Run-Gates $wt $sid $runNumber $rc
+      Log "gate failure for ${sid}: $reason"
+      if ($priorState -eq 'pr-open') {
+        Post-DiagnosticsComment $sid $runNumber $reason
+      }
+      Manifest-SetState $sid 'needs-info'
+      return $true
     }
-    Manifest-SetState $sid 'needs-info'
-    return $true
   }
 
   $commitOutcome = Commit-StoryChanges $wt $sid
@@ -1526,7 +1558,7 @@ function Run-OneIteration {
   }
 
   if ($commitOutcome.Status -eq 'no-code-verification') {
-    $reason = Run-NoCodeVerificationGates $wt $sid $runNumber $rc
+    $reason = Run-NoCodeVerificationGates $wt $sid $runNumber $effectiveRc
     if ($reason) {
       Log "gate failure for ${sid}: $reason"
       if ($priorState -eq 'pr-open') {
@@ -1541,7 +1573,7 @@ function Run-OneIteration {
     return $true
   }
 
-  $reason = Run-Gates $wt $sid $runNumber $rc
+  $reason = Run-Gates $wt $sid $runNumber $effectiveRc
   if ($reason) {
     Log "gate failure for ${sid}: $reason"
     if ($priorState -eq 'pr-open') {

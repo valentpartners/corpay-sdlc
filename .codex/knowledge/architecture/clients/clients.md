@@ -2,6 +2,12 @@
 
 Clients modernizes client maintenance and client search workflows from legacy Camtrade into the modern portal.
 
+## Layer Notes
+
+- Frontend: [frontend.md](frontend.md)
+- BFF: [bff.md](bff.md)
+- Domain services: [domain-services.md](domain-services.md)
+
 ## Known Anchors
 
 - Legacy reference: `code/Camtrade/`

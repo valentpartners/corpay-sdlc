@@ -1,0 +1,2 @@
+# Accounts BFF Architecture
+

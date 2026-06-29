@@ -2,6 +2,12 @@
 
 List Functions modernizes shared list/configuration-style functions from legacy Camtrade into the modern portal.
 
+## Layer Notes
+
+- Frontend: [frontend.md](frontend.md)
+- BFF: [bff.md](bff.md)
+- Domain services: [domain-services.md](domain-services.md)
+
 ## Known Anchors
 
 - Legacy reference: `code/Camtrade/`
